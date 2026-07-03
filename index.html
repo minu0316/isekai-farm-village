@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="ko">
-  <script>if(location.search.includes("publish")||location.hash.includes("publish")){document.documentElement.classList.add("publish-page");}</script>
+<html lang="ko" class="publish-page">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>이세계 팜빌리지 제작 시뮬레이터</title>
-    <link rel="stylesheet" href="./styles.css?v=20260703s" />
+    <title>이세계 팜빌리지 : 영지개척기</title>
+    <link rel="stylesheet" href="./styles.css?v=20260703t" />
+    <style>.editor{display:none!important}</style>
   </head>
-  <body>
+  <body class="publish-mode">
     <main class="app editor-open">
-      <section class="stage" aria-label="비주얼 노벨 시뮬레이터">
+      <section class="stage" aria-label="비주얼 노벨 플레이어">
         <img class="backdrop-fill" id="backdropFill" alt="" />
         <img class="backdrop" id="backdrop" alt="" />
         <div class="backdrop-fallback"></div>
@@ -32,7 +32,7 @@
             <div class="controls">
               <button class="icon-button" id="autoButton" type="button" title="자동 진행">Auto</button>
               <button class="icon-button" id="logButton" type="button" title="로그 보기">Log</button>
-              <button class="icon-button" id="resetButton" type="button" title="테스트 플레이 처음부터">처음</button>
+              <button class="icon-button" id="resetButton" type="button" title="처음부터">처음</button>
               <button class="icon-button next-button" id="nextButton" type="button" title="다음 장면">Next</button>
             </div>
           </div>
@@ -40,13 +40,9 @@
           <div class="choices" id="choices"></div>
         </section>
       </section>
-
       <aside class="editor" aria-label="시나리오 에디터">
         <header class="editor-header">
-          <div>
-            <p class="eyebrow">Scenario Lab</p>
-            <h1>이세계 팜빌리지</h1>
-          </div>
+          <div><p class="eyebrow">Scenario Lab</p><h1>이세계 팜빌리지</h1></div>
           <button id="playCurrentButton" type="button">현재 장면 재생</button>
         </header>
         <div class="editor-tabs" role="tablist">
@@ -58,9 +54,8 @@
         </div>
         <section class="editor-body" id="editorBody"></section>
       </aside>
-
       <aside class="side-panel" id="logPanel" aria-label="대화 로그">
-        <header><h1>테스트 로그</h1><button id="closeLogButton" type="button" onclick="var p=document.getElementById('logPanel');p.classList.remove('open');p.style.display='none';p.style.visibility='hidden';p.style.pointerEvents='none';">닫기</button></header>
+        <header><h1>테스트 로그</h1><button id="closeLogButton" type="button">닫기</button></header>
         <div class="tabs" role="tablist">
           <button class="active" data-tab="log" type="button">로그</button>
           <button data-tab="quests" type="button">퀘스트</button>
@@ -69,7 +64,7 @@
         <div class="panel-content" id="panelContent"></div>
       </aside>
     </main>
-    <script src="./data/scenario.js?v=20260703s"></script>
-    <script src="./app.js?v=20260703s"></script>
+    <script src="./data/scenario.js?v=20260703t"></script>
+    <script src="./app.js?v=20260703t"></script>
   </body>
 </html>
