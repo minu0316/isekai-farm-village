@@ -85,7 +85,7 @@ function openPublishedView(){
 }
 async function copyPublishedLink(){
   await navigator.clipboard.writeText(publishedUrl());
-  showToast("결과 공유 링크를 복사했습니다.");
+  showToast("공유 링크를 복사했습니다.");
 }
 function normalizeSpeakerName(name){
   const value = String(name || "").trim();

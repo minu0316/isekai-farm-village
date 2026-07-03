@@ -76,3 +76,10 @@ body.publish-mode .hud{top:12px!important;left:12px!important;right:12px!importa
 body.publish-mode .character.left{left:10px!important}
 body.publish-mode .character.right{right:10px!important}
 @media(max-width:520px){body.publish-mode .app{box-shadow:none!important}}
+
+
+/* publish fallback before script boot */
+html.publish-page body{min-height:100dvh!important;display:grid!important;place-items:center!important;overflow:hidden!important;background:#070b08!important}
+html.publish-page .app{display:block!important;position:relative!important;width:min(100vw,calc(100dvh * 1024 / 1792))!important;height:min(100dvh,calc(100vw * 1792 / 1024))!important;min-height:0!important;aspect-ratio:1024/1792!important;margin:auto!important;overflow:hidden!important;background:#0d1210!important}
+html.publish-page .editor{display:none!important}
+html.publish-page .stage{width:100%!important;height:100%!important;min-height:0!important}
