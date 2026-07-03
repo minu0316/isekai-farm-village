@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>이세계 팜빌리지 제작 시뮬레이터</title>
+    <link rel="stylesheet" href="./styles.css?v=20260703p" />
+  </head>
+  <body>
+    <main class="app editor-open">
+      <section class="stage" aria-label="비주얼 노벨 시뮬레이터">
+        <img class="backdrop-fill" id="backdropFill" alt="" />
+        <img class="backdrop" id="backdrop" alt="" />
+        <div class="backdrop-fallback"></div>
+        <section class="title-screen" id="titleScreen" aria-label="타이틀 화면">
+          <img class="title-art" id="titleArt" alt="이세계 팜빌리지 영지개척기" />
+          <div class="title-actions">
+            <button class="title-start-button" id="startButton" type="button">시작하기</button>
+          </div>
+        </section>
+        <div class="character-layer" id="characterLayer"></div>
+        <div class="scene-vignette"></div>
+        <aside class="hud" aria-label="진행 상태">
+          <div class="hud-block"><span>Quest</span><strong id="questTitle">-</strong></div>
+          <div class="quest-progress"><div id="questProgress"></div></div>
+          <div class="affection" id="affectionPanel"></div>
+        </aside>
+        <section class="dialogue" aria-live="polite">
+          <div class="speaker-row">
+            <strong id="speaker">-</strong>
+            <div class="controls">
+              <button class="icon-button" id="autoButton" type="button" title="자동 진행">Auto</button>
+              <button class="icon-button" id="logButton" type="button" title="로그 보기">Log</button>
+              <button class="icon-button" id="resetButton" type="button" title="테스트 플레이 처음부터">처음</button>
+              <button class="icon-button next-button" id="nextButton" type="button" title="다음 장면">Next</button>
+            </div>
+          </div>
+          <p id="line"></p>
+          <div class="choices" id="choices"></div>
+        </section>
+      </section>
+
+      <aside class="editor" aria-label="시나리오 에디터">
+        <header class="editor-header">
+          <div>
+            <p class="eyebrow">Scenario Lab</p>
+            <h1>이세계 팜빌리지</h1>
+          </div>
+          <button id="playCurrentButton" type="button">현재 장면 재생</button>
+        </header>
+        <div class="editor-tabs" role="tablist">
+          <button class="active" data-editor-tab="scene" type="button">장면</button>
+          <button data-editor-tab="branch" type="button">분기</button>
+          <button data-editor-tab="stats" type="button">수치</button>
+          <button data-editor-tab="assets" type="button">이미지</button>
+          <button data-editor-tab="export" type="button">내보내기</button>
+        </div>
+        <section class="editor-body" id="editorBody"></section>
+      </aside>
+
+      <aside class="side-panel" id="logPanel" aria-label="대화 로그">
+        <header><h1>테스트 로그</h1><button id="closeLogButton" type="button" onclick="var p=document.getElementById('logPanel');p.classList.remove('open');p.style.display='none';p.style.visibility='hidden';p.style.pointerEvents='none';">닫기</button></header>
+        <div class="tabs" role="tablist">
+          <button class="active" data-tab="log" type="button">로그</button>
+          <button data-tab="quests" type="button">퀘스트</button>
+          <button data-tab="characters" type="button">인물</button>
+        </div>
+        <div class="panel-content" id="panelContent"></div>
+      </aside>
+    </main>
+    <script src="./data/scenario.js?v=20260703p"></script>
+    <script src="./app.js?v=20260703p"></script>
+  </body>
+</html>
