@@ -1,10 +1,13 @@
 const STORAGE_KEY = "farmVillageScenarioDraftV4";
+const PLAYER_NAME_KEY = "farmVillagePlayerName";
+const TERRITORY_NAME_KEY = "farmVillageTerritoryName";
+const REVIEW_CHECKPOINT_KEY = "farmVillageReviewCheckpointV1";
 const originalScenario = window.FARM_VILLAGE_SCENARIO;
 const publishedScenario = loadPublishedScenario();
 const draftScenario = publishedScenario || loadDraft();
-const scenario = repairScenarioLinks(migrateDiningRoute(normalizeScenarioNames(migrateAssetPaths(draftScenario ? mergeScenarioDraft(structuredClone(originalScenario), draftScenario) : structuredClone(originalScenario)))));
+const scenario = repairScenarioLinks(migrateAllClearBranches(migrateDiningRoute(normalizeScenarioNames(migrateAssetPaths(draftScenario ? mergeScenarioDraft(structuredClone(originalScenario), draftScenario) : structuredClone(originalScenario))))));
 if(draftScenario && !publishedScenario) saveDraft();
-const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, dialoguePage: 0, appliedEffects: new Set(), characters: [] };
+const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null };
 const els = {
   backdrop: document.getElementById("backdrop"), backdropFill: document.getElementById("backdropFill"), characters: document.getElementById("characterLayer"), questTitle: document.getElementById("questTitle"), questProgress: document.getElementById("questProgress"), affection: document.getElementById("affectionPanel"),
   speaker: document.getElementById("speaker"), line: document.getElementById("line"), choices: document.getElementById("choices"), next: document.getElementById("nextButton"), auto: document.getElementById("autoButton"), log: document.getElementById("logButton"), reset: document.getElementById("resetButton"),
@@ -92,6 +95,60 @@ function normalizeSpeakerName(name){
   if(!value) return "";
   return value.replace(/^로드(?=$|\s|\()/, "주인공");
 }
+function loadPlayerName(){
+  try { return localStorage.getItem(PLAYER_NAME_KEY) || ""; }
+  catch { return ""; }
+}
+function savePlayerName(value){
+  state.playerName = String(value || "").trim();
+  try { if(state.playerName) localStorage.setItem(PLAYER_NAME_KEY, state.playerName); }
+  catch {}
+}
+function clearPlayerName(){
+  state.playerName = "";
+  try { localStorage.removeItem(PLAYER_NAME_KEY); }
+  catch {}
+}
+function loadTerritoryName(){
+  try { return localStorage.getItem(TERRITORY_NAME_KEY) || ""; }
+  catch { return ""; }
+}
+function saveTerritoryName(value){
+  state.territoryName = String(value || "").trim();
+  try { if(state.territoryName) localStorage.setItem(TERRITORY_NAME_KEY, state.territoryName); }
+  catch {}
+}
+function clearTerritoryName(){
+  state.territoryName = "";
+  try { localStorage.removeItem(TERRITORY_NAME_KEY); }
+  catch {}
+}
+function isMainCharacterSpeaker(speaker){
+  return normalizeSpeakerName(speaker).startsWith("주인공");
+}
+function displaySpeakerName(speaker){
+  const normalized = normalizeSpeakerName(speaker);
+  if(!normalized) return "";
+  if(state.playerName && normalized.startsWith("주인공")) return normalized.replace(/^주인공/, state.playerName);
+  return normalized;
+}
+function displayLineText(text){
+  const name = state.playerName || "주인공";
+  const territory = state.territoryName || "영지";
+  return String(text || "")
+    .replace(/{player}/g, name)
+    .replace(/{name}/g, name)
+    .replace(/\[영지이름\]/g, territory)
+    .replace(/\[\s*\]/g, territory)
+    .replace(/{territory}/g, territory)
+    .replace(/{territoryName}/g, territory);
+}
+function isNameInputNode(node){
+  return !!node && (node.nameInput || (state.nodeId === scenario.start && isMainCharacterSpeaker(node.speaker)));
+}
+function isTerritoryInputNode(node){
+  return !!node && !!node.territoryInput;
+}
 function speakerCharacterId(speaker){
   const name = normalizeSpeakerName(speaker);
   if(!name) return "";
@@ -119,12 +176,38 @@ function ensureEffect(node, effect){
   const exists = node.effects.some(function(item){ return item.type === effect.type && item.key === effect.key && item.character === effect.character; });
   if(!exists) node.effects.push(effect);
 }
+function autoChoiceFlag(choice){
+  const base = choice.hideIfFlag || choice.next || choice.text || "choice";
+  return "done_" + String(base).toLowerCase().replace(/[^a-z0-9가-힣]+/g, "_").replace(/^_+|_+$/g, "");
+}
+function findNodeIdInScenario(target, id){
+  if(!id || !target?.nodes) return "";
+  if(target.nodes[id]) return id;
+  const lower = String(id).toLowerCase();
+  return Object.keys(target.nodes).find(function(nodeId){ return nodeId.toLowerCase() === lower; }) || "";
+}
+function ensureChoiceCompletion(target, choice){
+  if(!choice || choice.reset || choice.action || !choice.next) return;
+  const targetId = findNodeIdInScenario(target, choice.next) || choice.next;
+  const targetNode = target?.nodes?.[targetId];
+  if(!targetNode) return;
+  if(!choice.hideIfFlag) choice.hideIfFlag = autoChoiceFlag(choice);
+  ensureEffect(targetNode, { type: "flag", key: choice.hideIfFlag, value: true });
+}
+function migrateAllClearBranches(target){
+  Object.values(target?.nodes || {}).forEach(function(node){
+    if(!node?.autoNextWhenChoicesDone || !node.choices) return;
+    node.choices.forEach(function(choice){ ensureChoiceCompletion(target, choice); });
+  });
+  return target;
+}
 function migrateDiningRoute(target){
   const nodes = target?.nodes || {};
+  if(nodes.scene_003b) nodes.scene_003b.territoryInput = true;
   if(nodes.intro_001) nodes.intro_001.bg = "field";
   if(nodes.dining_003){
     nodes.dining_003.next = "food_problem";
-    delete nodes.dining_003.autoNextWhenChoicesDone;
+    nodes.dining_003.autoNextWhenChoicesDone = true;
     nodes.dining_003.choices = [
       { text: "맥스에게 말을 건다", next: "meet_max", hideIfFlag: "met_max" },
       { text: "갈리온에게 말을 건다", next: "meet_gallion", hideIfFlag: "met_gallion" },
@@ -147,7 +230,10 @@ function migrateAssetPaths(target){
     './assets/char-liddy-cutout.png': './assets/char-liddy-sheet.png',
     './assets/char-ethan-cutout.png': './assets/char-ethan-sheet.png',
     './assets/char-lord-cutout.png': './assets/char-lord-sheet.png',
-    './assets/bg-field.png': './assets/bg-isometric-farm.png'
+    './assets/bg-field.png': './assets/bg-isometric-farm.png',
+    './assets/bg-storage': './assets/bg-storage.png',
+    'assets/bg-storage': './assets/bg-storage.png',
+    'bg-storage': './assets/bg-storage.png'
   };
   if(target?.assets?.characters){
     Object.keys(target.assets.characters).forEach(function(id){
@@ -160,6 +246,9 @@ function migrateAssetPaths(target){
       const value = target.assets.backgrounds[id];
       if(replacements[value]) target.assets.backgrounds[id] = replacements[value];
     });
+    if(!target.assets.backgrounds.bg) target.assets.backgrounds.bg = "./assets/bg-wall.png";
+    target.assets.backgrounds.bg_2 = "./assets/bg-storage.png";
+    if(!target.assets.backgrounds.cleanwell) target.assets.backgrounds.cleanwell = "./assets/bg-cleanwell.png";
   }
   if(target?.assets?.characters){
     target.assets.characters.lord = "./assets/char-lord-sheet.png";
@@ -224,6 +313,17 @@ function loadDraft(){ try { const raw = localStorage.getItem(STORAGE_KEY); retur
 function saveDraft(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario)); }
 function currentNode(){ return scenario.nodes[state.nodeId]; }
 function nodeIds(){ return Object.keys(scenario.nodes); }
+function nodeLabel(id){
+  const node = scenario.nodes[id];
+  if(!node) return id;
+  const marks = [];
+  if(node.choices && node.choices.length) marks.push("분기");
+  if(node.autoNextWhenChoicesDone) marks.push("올클리어");
+  const markText = marks.length ? " (" + marks.join("/") + ")" : "";
+  const memo = String(node.memo || "").trim();
+  const memoText = memo ? " - " + (memo.length > 24 ? memo.slice(0, 24) + "..." : memo) : "";
+  return id + markText + memoText;
+}
 function bgIds(){ return Object.keys(scenario.assets.backgrounds); }
 function charIds(){ return Object.keys(scenario.characters); }
 function questIds(){ return Object.keys(scenario.quests); }
@@ -239,13 +339,38 @@ function bindTextInput(el, onInput){
 }
 function input(value, onInput, type){ const el = document.createElement("input"); el.type = type || "text"; el.value = value || ""; bindTextInput(el, onInput); return el; }
 function textarea(value, onInput){ const el = document.createElement("textarea"); el.rows = 5; el.value = value || ""; bindTextInput(el, onInput); return el; }
+function plainInput(value, placeholder){ const el = document.createElement("input"); el.type = "text"; el.value = value || ""; if(placeholder) el.placeholder = placeholder; return el; }
+function plainTextarea(value, placeholder, rows){ const el = document.createElement("textarea"); el.rows = rows || 4; el.value = value || ""; if(placeholder) el.placeholder = placeholder; return el; }
+function cleanId(value, fallback){
+  const base = String(value || "").trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  return base || fallback;
+}
+function uniqueKey(collection, base){
+  let id = base;
+  let index = 2;
+  while(collection[id]) id = base + "_" + index++;
+  return id;
+}
+function stepLines(value){ return String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").map(function(line){ return line.trim(); }).filter(Boolean); }
 function draftTextField(labelText, multiline, value, onApply){
   const wrap = make("div", "field apply-field");
+  const isDialogueText = labelText === "대사";
   const label = make("span", "", labelText);
   const control = document.createElement(multiline ? "textarea" : "input");
   if(multiline) control.rows = 7;
   else control.type = "text";
+  if(isDialogueText){
+    wrap.classList.add("dialogue-script-field");
+    control.classList.add("dialogue-script-input");
+    control.rows = 5;
+  }
   control.value = value || "";
+  const preview = isDialogueText ? make("div", "dialogue-page-preview") : null;
+  function refreshDialoguePreview(){
+    if(!preview) return;
+    const pages = dialoguePages(control.value);
+    preview.textContent = pages.map(function(page, index){ return String(index + 1) + " / " + String(pages.length) + "\n" + page; }).join("\n\n");
+  }
   const actions = make("div", "apply-actions");
   const status = make("span", "apply-status", "수정 후 버튼을 누르면 저장됩니다");
   const apply = button(labelText + " 수정 완료", function(){
@@ -262,6 +387,7 @@ function draftTextField(labelText, multiline, value, onApply){
     apply.disabled = !dirty;
     status.textContent = dirty ? "저장 전 변경 있음" : "저장됨";
     wrap.classList.toggle("dirty", dirty);
+    refreshDialoguePreview();
   });
   control.addEventListener("keydown", function(event){
     if((event.ctrlKey || event.metaKey) && event.key === "Enter" && !apply.disabled){
@@ -273,12 +399,16 @@ function draftTextField(labelText, multiline, value, onApply){
   actions.appendChild(status);
   wrap.appendChild(label);
   wrap.appendChild(control);
+  if(preview){
+    refreshDialoguePreview();
+    wrap.appendChild(preview);
+  }
   wrap.appendChild(actions);
   return wrap;
 }
-function select(values, selected, onChange, emptyLabel){ const el = document.createElement("select"); if(emptyLabel !== undefined){ const opt = document.createElement("option"); opt.value = ""; opt.textContent = emptyLabel; el.appendChild(opt); } values.forEach(function(v){ const opt = document.createElement("option"); opt.value = v; opt.textContent = v; opt.selected = v === selected; el.appendChild(opt); }); el.addEventListener("change", function(){ onChange(el.value); }); return el; }
+function select(values, selected, onChange, emptyLabel, labeler){ const el = document.createElement("select"); if(emptyLabel !== undefined){ const opt = document.createElement("option"); opt.value = ""; opt.textContent = emptyLabel; el.appendChild(opt); } values.forEach(function(v){ const opt = document.createElement("option"); opt.value = v; opt.textContent = labeler ? labeler(v) : v; opt.selected = v === selected; const targetNode = scenario.nodes?.[v]; if(targetNode?.choices?.length) opt.className = targetNode.autoNextWhenChoicesDone ? "option-all-clear" : "option-branch"; el.appendChild(opt); }); el.addEventListener("change", function(){ onChange(el.value); }); return el; }
 function button(text, onClick){ const el = document.createElement("button"); el.type = "button"; el.textContent = text; el.addEventListener("click", onClick); return el; }
-function updateNode(mutator){ mutator(currentNode()); repairScenarioLinks(scenario); saveDraft(); closePanel(); // force-start-closed
+function updateNode(mutator){ mutator(currentNode()); state.storyAnalysis = null; repairScenarioLinks(scenario); saveDraft(); closePanel(); // force-start-closed
 render(); }
 function setNodeField(fieldName, value){ updateNode(function(node){ if(value === "" && ["bg", "quest", "next"].includes(fieldName)) delete node[fieldName]; else if(fieldName === "progress") node[fieldName] = Number(value || 0); else if(fieldName === "next") node[fieldName] = findNodeIdLoose(value) || value; else if(fieldName === "speaker") node[fieldName] = normalizeSpeakerName(value); else node[fieldName] = value; }); }
 function setCurrentNode(id){ state.nodeId = id; state.dialoguePage = 0; playCurrent(); }
@@ -294,6 +424,117 @@ function reindexEditorSceneIds(){
   closePanel();
   render();
   showToast("장면 ID를 scene_001부터 정리했습니다.");
+}
+function nodeStoryLinks(id){
+  const node = scenario.nodes[id];
+  if(!node) return [];
+  const links = [];
+  (node.choices || []).forEach(function(choice, index){
+    if(choice.next) links.push({ from: id, to: choice.next, type: "선택지", label: choice.text || "선택지 " + String(index + 1) });
+  });
+  if(node.next) links.push({ from: id, to: node.next, type: "다음", label: "next" });
+  return links;
+}
+function analyzeStoryGraph(){
+  const nodes = scenario.nodes || {};
+  const allIds = Object.keys(nodes);
+  const visited = new Set();
+  const order = [];
+  const missing = [];
+  const loops = [];
+  const seenLoops = new Set();
+  const maxSteps = Math.max(2000, allIds.length * 30);
+  let steps = 0;
+  const stack = [{ id: scenario.start, path: [] }];
+  while(stack.length && steps < maxSteps){
+    steps++;
+    const item = stack.pop();
+    const id = findNodeIdLoose(item.id) || item.id;
+    if(!nodes[id]) continue;
+    const loopStart = item.path.indexOf(id);
+    if(loopStart >= 0){
+      const label = item.path.slice(loopStart).concat(id).join(" -> ");
+      if(!seenLoops.has(label)){ seenLoops.add(label); loops.push({ path: label }); }
+      continue;
+    }
+    if(visited.has(id)) continue;
+    visited.add(id);
+    order.push(id);
+    const nextPath = item.path.concat(id);
+    nodeStoryLinks(id).slice().reverse().forEach(function(link){
+      const targetId = findNodeIdLoose(link.to);
+      if(!targetId) missing.push(link);
+      else if(nextPath.includes(targetId)){
+        const label = nextPath.slice(nextPath.indexOf(targetId)).concat(targetId).join(" -> ");
+        if(!seenLoops.has(label)){ seenLoops.add(label); loops.push({ path: label }); }
+      } else if(!visited.has(targetId)) stack.push({ id: targetId, path: nextPath });
+    });
+  }
+  if(steps >= maxSteps) loops.push({ path: "검사 한도 초과: 연결 구조를 확인해 주세요" });
+  const unreachable = allIds.filter(function(id){ return !visited.has(id); });
+  const terminal = allIds.filter(function(id){
+    const node = nodes[id];
+    const hasChoiceMove = (node.choices || []).some(function(choice){ return choice.next || choice.action || choice.reset; });
+    return !node.next && !hasChoiceMove;
+  });
+  return { order: order, unreachable: unreachable, missing: missing, loops: loops, terminal: terminal };
+}
+function storyItemLabel(id){ return nodeLabel(id); }
+function appendStoryList(parent, title, items, formatter, limit){
+  const wrap = make("div", "story-list");
+  wrap.appendChild(make("strong", "", title + " " + String(items.length)));
+  if(!items.length){
+    wrap.appendChild(make("span", "muted", "없음"));
+  } else {
+    const list = make("div", "story-list-items");
+    items.slice(0, limit || 12).forEach(function(item){ list.appendChild(make("span", "story-pill", formatter(item))); });
+    if(items.length > (limit || 12)) list.appendChild(make("span", "story-pill muted-pill", "+" + String(items.length - (limit || 12))));
+    wrap.appendChild(list);
+  }
+  parent.appendChild(wrap);
+}
+function reorderNodesByStoryOrder(){
+  const analysis = analyzeStoryGraph();
+  const currentId = state.nodeId;
+  const reordered = {};
+  analysis.order.concat(analysis.unreachable).forEach(function(id){ if(scenario.nodes[id]) reordered[id] = scenario.nodes[id]; });
+  scenario.nodes = reordered;
+  state.nodeId = scenario.nodes[currentId] ? currentId : scenario.start;
+  state.dialoguePage = 0;
+  saveDraft();
+  state.storyAnalysis = analyzeStoryGraph();
+  closePanel();
+  render();
+  showToast("스토리 순서로 장면 목록을 정렬했습니다.");
+}
+function runStoryAnalysis(){
+  state.storyAnalysis = analyzeStoryGraph();
+  renderEditor();
+}
+function renderStoryStructureTools(){
+  const box = make("div", "choice-editor manager-card story-tools");
+  box.appendChild(make("strong", "", "스토리 구조 검사"));
+  const analysis = state.storyAnalysis;
+  if(!analysis){
+    box.appendChild(make("p", "muted", "검사를 실행하면 도달 불가 장면, 끊긴 연결, 종료 장면, 루프 의심 구간과 스토리 순서 미리보기를 보여줍니다."));
+    const firstRow = make("div", "button-row");
+    firstRow.appendChild(button("스토리 검사 실행", runStoryAnalysis));
+    box.appendChild(firstRow);
+    els.editorBody.appendChild(box);
+    return;
+  }
+  box.appendChild(make("p", "muted", "도달 가능 " + String(analysis.order.length) + "/" + String(nodeIds().length) + " · 도달 불가 " + String(analysis.unreachable.length) + " · 끊긴 연결 " + String(analysis.missing.length) + " · 종료 장면 " + String(analysis.terminal.length) + " · 루프 의심 " + String(analysis.loops.length)));
+  appendStoryList(box, "스토리 순서", analysis.order, storyItemLabel, 18);
+  appendStoryList(box, "도달 불가", analysis.unreachable, storyItemLabel, 10);
+  appendStoryList(box, "끊긴 연결", analysis.missing, function(link){ return link.from + " -> " + link.to + " (" + link.type + ")"; }, 8);
+  appendStoryList(box, "종료 장면", analysis.terminal, storyItemLabel, 8);
+  appendStoryList(box, "루프 의심", analysis.loops, function(loop){ return loop.path; }, 6);
+  const row = make("div", "button-row");
+  row.appendChild(button("다시 검사", runStoryAnalysis));
+  row.appendChild(button("스토리 순서로 목록 정렬", reorderNodesByStoryOrder));
+  box.appendChild(row);
+  box.appendChild(make("p", "muted", "정렬은 장면 목록 순서만 바꾸고 ID와 연결은 바꾸지 않습니다. 필요하면 정렬 후 장면 ID 정리를 따로 실행하세요."));
+  els.editorBody.appendChild(box);
 }
 function render(){ const node = currentNode(); if(!node) return; if(node.bg) state.background = node.bg; if(node.quest) state.quest = node.quest; if(typeof node.progress === "number") state.progress = node.progress; if(node.characters) state.characters = structuredClone(node.characters); renderBackground(); renderTitleScreen(); renderCharacters(); renderDialogue(node); if(!state.title) applyEffects(node); renderHud(); renderPanel(); if(!isPublishMode) renderEditor(); scheduleAuto(); }
 function renderBackground(){
@@ -311,16 +552,47 @@ function renderTitleScreen(){
 }
 function startGame(){ state.title = false; closePanel(); render(); }
 function renderCharacters(){ clear(els.characters); const activeId = speakerCharacterId(currentNode()?.speaker); const hasFocus = state.characters.length > 1 && state.characters.some(function(item){ return item.id === activeId; }); state.characters.forEach(function(item){ const src = scenario.assets.characters[item.id]; if(!src) return; const img = make("img", "character " + (item.position || "center")); if(hasFocus) img.classList.add(item.id === activeId ? "is-speaking" : "is-dimmed"); img.src = src; img.alt = scenario.characters[item.id]?.name || item.id; els.characters.appendChild(img); }); }
+function dialogueLineCapacity(){
+  const lineEl = els?.line;
+  const width = Math.max(180, lineEl?.clientWidth || document.querySelector(".dialogue")?.clientWidth || 360);
+  const style = lineEl ? window.getComputedStyle(lineEl) : null;
+  const fontSize = parseFloat(style?.fontSize || "18") || 18;
+  return Math.max(10, Math.floor(width / (fontSize * 1.02)));
+}
+function wrapDialogueLine(line, capacity){
+  const text = String(line || "").trim();
+  if(!text) return [];
+  const chunks = [];
+  let rest = text;
+  while(rest.length > capacity){
+    let cut = -1;
+    const punctuation = [". ", "? ", "! ", ", ", ".", "?", "!", ",", "。", "？", "！", "、", " "];
+    punctuation.forEach(function(mark){
+      const found = rest.lastIndexOf(mark, capacity);
+      if(found > Math.floor(capacity * 0.45)) cut = Math.max(cut, found + mark.length);
+    });
+    if(cut <= 0) cut = capacity;
+    chunks.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if(rest) chunks.push(rest);
+  return chunks;
+}
 function dialoguePages(text){
-  const normalized = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const lines = normalized.split("\n").map(function(line){ return line.trim(); }).filter(Boolean);
-  if(!lines.length) return [""];
+  const normalized = String(text || "").replace(/\\n/g, "\n").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const logicalLines = normalized.split("\n").map(function(line){ return line.trim(); }).filter(Boolean);
+  if(!logicalLines.length) return [""];
+  const capacity = dialogueLineCapacity();
+  const visualLines = [];
+  logicalLines.forEach(function(line){
+    wrapDialogueLine(line, capacity).forEach(function(chunk){ visualLines.push(chunk); });
+  });
   const pages = [];
-  for(let i = 0; i < lines.length; i += 3) pages.push(lines.slice(i, i + 3).join("\n"));
+  for(let i = 0; i < visualLines.length; i += 3) pages.push(visualLines.slice(i, i + 3).join("\n"));
   return pages;
 }
 function isLastDialoguePage(node){
-  const pages = dialoguePages(node?.text || "");
+  const pages = dialoguePages(displayLineText(node?.text || ""));
   return state.dialoguePage >= pages.length - 1;
 }
 function choiceIsVisible(choice){
@@ -331,14 +603,30 @@ function choiceIsVisible(choice){
 function visibleChoices(node){
   return (node?.choices || []).filter(choiceIsVisible);
 }
+function choiceHubIsComplete(node){
+  return !!(node?.autoNextWhenChoicesDone && node.next && (node.choices || []).length && !visibleChoices(node).length);
+}
 function shouldAutoAdvanceChoicesDone(node){
-  return !!(node?.autoNextWhenChoicesDone && node.next && (node.choices || []).length && !visibleChoices(node).length && isLastDialoguePage(node));
+  return !!(choiceHubIsComplete(node) && isLastDialoguePage(node));
+}
+function resolveCompletedChoiceHub(id){
+  let targetId = findNodeIdLoose(id);
+  const visited = new Set();
+  while(targetId && !visited.has(targetId)){
+    visited.add(targetId);
+    const target = scenario.nodes[targetId];
+    if(!choiceHubIsComplete(target)) break;
+    const nextId = findNodeIdLoose(target.next);
+    if(!nextId) break;
+    targetId = nextId;
+  }
+  return targetId;
 }
 function renderDialogue(node){
-  const pages = dialoguePages(node.text || "");
+  const pages = dialoguePages(displayLineText(node.text || ""));
   if(state.dialoguePage >= pages.length) state.dialoguePage = Math.max(0, pages.length - 1);
   const isLastPage = state.dialoguePage >= pages.length - 1;
-  els.speaker.textContent = normalizeSpeakerName(node.speaker) || "";
+  els.speaker.textContent = displaySpeakerName(node.speaker) || "";
   els.line.textContent = pages[state.dialoguePage] || "";
   els.line.dataset.page = pages.length > 1 ? String(state.dialoguePage + 1) + " / " + String(pages.length) : "";
   els.next.classList.toggle("has-more-lines", !isLastPage);
@@ -346,29 +634,237 @@ function renderDialogue(node){
   clear(els.choices);
   const choices = visibleChoices(node);
   const hasChoices = isLastPage && choices.length > 0;
-  if(els.dialogue) els.dialogue.classList.toggle("has-visible-choices", hasChoices);
+  const hasNameEntry = isLastPage && (isNameInputNode(node) || isTerritoryInputNode(node));
+  if(els.dialogue){
+    els.dialogue.classList.toggle("has-visible-choices", hasChoices);
+    els.dialogue.classList.toggle("has-name-entry", hasNameEntry);
+  }
   if(!isLastPage) return;
+  if(isNameInputNode(node)) renderNameInput();
+  if(isTerritoryInputNode(node)) renderTerritoryNameInput();
   choices.forEach(function(choice){ const c = make("button", "choice", choice.text || "선택지"); c.type = "button"; c.addEventListener("click", function(){ selectChoice(choice); }); els.choices.appendChild(c); });
+}
+function renderNameInput(){
+  const wrap = make("div", "name-entry");
+  const inputEl = document.createElement("input");
+  inputEl.type = "text";
+  inputEl.maxLength = 12;
+  inputEl.placeholder = "이름 입력";
+  inputEl.value = state.playerName || "";
+  const apply = button(state.playerName ? "이름 변경" : "이름 정하기", function(){
+    const clean = inputEl.value.trim();
+    if(!clean){ showToast("이름을 입력해 주세요."); inputEl.focus(); return; }
+    savePlayerName(clean);
+    showToast(clean + " 이름을 기억했습니다.");
+    render();
+  });
+  inputEl.addEventListener("keydown", function(event){
+    if(event.key === "Enter"){
+      event.preventDefault();
+      apply.click();
+    }
+  });
+  wrap.appendChild(inputEl);
+  wrap.appendChild(apply);
+  els.choices.appendChild(wrap);
+}
+function renderTerritoryNameInput(){
+  const wrap = make("div", "name-entry territory-entry");
+  const inputEl = document.createElement("input");
+  inputEl.type = "text";
+  inputEl.maxLength = 16;
+  inputEl.placeholder = "영지 이름 입력";
+  inputEl.value = state.territoryName || "";
+  const apply = button(state.territoryName ? "영지 이름 변경" : "영지 이름 정하기", function(){
+    const clean = inputEl.value.trim();
+    if(!clean){ showToast("영지 이름을 입력해 주세요."); inputEl.focus(); return; }
+    saveTerritoryName(clean);
+    showToast(clean + " 영지 이름을 기억했습니다.");
+    render();
+  });
+  inputEl.addEventListener("keydown", function(event){
+    if(event.key === "Enter"){
+      event.preventDefault();
+      apply.click();
+    }
+  });
+  wrap.appendChild(inputEl);
+  wrap.appendChild(apply);
+  els.choices.appendChild(wrap);
 }
 function renderHud(){ const quest = scenario.quests[state.quest]; els.questTitle.textContent = quest ? quest.title : "-"; const max = Math.max(((quest && quest.steps) ? quest.steps.length : 1) - 1, 1); els.questProgress.style.width = Math.min(100, (state.progress / max) * 100) + "%"; clear(els.affection); Object.entries(scenario.characters).forEach(function(pair){ const id = pair[0]; const ch = pair[1]; const item = make("div", "affection-item"); item.appendChild(make("span", "", ch.name)); item.appendChild(make("strong", "", String(state.affection[id] || 0))); els.affection.appendChild(item); }); }
 function applyEffects(node){ if(!node.effects) return; const key = state.nodeId + ":" + JSON.stringify(node.effects); if(state.appliedEffects.has(key)) return; state.appliedEffects.add(key); node.effects.forEach(function(effect){ if(effect.type === "affection"){ state.affection[effect.character] = (state.affection[effect.character] || 0) + Number(effect.amount || 0); showToast(effect.label || "호감도 변경"); } if(effect.type === "quest"){ state.quest = effect.quest || state.quest; state.progress = Number(effect.step || 0); showToast(effect.label || "퀘스트 진행 변경"); } if(effect.type === "flag"){ state.flags[effect.key] = effect.value !== false; } }); }
-function selectChoice(choice){ clearAuto(); if(!isLastDialoguePage(currentNode())) return; if(choice.reset) resetGame(); if(choice.action === "openLog") openPanel("log"); if(choice.next && !choice.reset) goTo(choice.next); }
-function next(){ if(state.title){ startGame(); return; } const node = currentNode(); if(!node) return; const pages = dialoguePages(node.text || ""); if(state.dialoguePage < pages.length - 1){ state.dialoguePage += 1; render(); return; } if(visibleChoices(node).length) return; if(node.next) goTo(node.next); }
-function goTo(id){ const targetId = findNodeIdLoose(id); if(!targetId){ showToast("이동할 장면을 찾을 수 없습니다: " + id); repairScenarioLinks(scenario); saveDraft(); render(); return; } const node = currentNode(); if(node) state.log.push({ speaker: normalizeSpeakerName(node.speaker) || "", text: node.text || "" }); state.nodeId = targetId; state.dialoguePage = 0; render(); }
-function resetGame(){ state.nodeId = scenario.start; state.background = "field"; state.quest = "intro"; state.progress = 0; state.affection = {}; state.flags = {}; state.log = []; state.title = true; state.dialoguePage = 0; state.appliedEffects = new Set(); state.characters = []; render(); }
+function next(){
+  if(state.title){ startGame(); return; }
+  const node = currentNode();
+  if(!node) return;
+  const pages = dialoguePages(displayLineText(node.text || ""));
+  if(state.dialoguePage < pages.length - 1){
+    state.dialoguePage += 1;
+    render();
+    return;
+  }
+  if(isNameInputNode(node) && !state.playerName){
+    const nameInput = els.choices.querySelector(".name-entry input");
+    const clean = nameInput ? nameInput.value.trim() : "";
+    if(clean){
+      savePlayerName(clean);
+      showToast(clean + " 이름을 기억했습니다.");
+      render();
+      return;
+    }
+    showToast("이름을 입력해 주세요.");
+    if(nameInput) nameInput.focus();
+    return;
+  }
+  if(isTerritoryInputNode(node) && !state.territoryName){
+    const territoryInput = els.choices.querySelector(".territory-entry input");
+    const clean = territoryInput ? territoryInput.value.trim() : "";
+    if(clean){
+      saveTerritoryName(clean);
+      showToast(clean + " 영지 이름을 기억했습니다.");
+      render();
+      return;
+    }
+    showToast("영지 이름을 입력해 주세요.");
+    if(territoryInput) territoryInput.focus();
+    return;
+  }
+  if(visibleChoices(node).length) return;
+  if(node.next) goTo(node.next);
+}
+function goTo(id){
+  const foundId = findNodeIdLoose(id);
+  if(!foundId){
+    showToast("이동할 장면을 찾을 수 없습니다: " + id);
+    repairScenarioLinks(scenario);
+    saveDraft();
+    render();
+    return;
+  }
+  const targetId = resolveCompletedChoiceHub(foundId) || foundId;
+  const node = currentNode();
+  if(node) state.log.push({ speaker: displaySpeakerName(node.speaker) || "", text: displayLineText(node.text || "") });
+  state.nodeId = targetId;
+  state.dialoguePage = 0;
+  render();
+}
+function selectChoice(choice){ clearAuto(); if(!isLastDialoguePage(currentNode())) return; if(choice.reset){ resetGame(); return; } if(choice.action === "openLog"){ openPanel("log"); return; } if(choice.next) goTo(choice.next); }
+function resetGame(){ clearPlayerName(); clearTerritoryName(); state.nodeId = scenario.start; state.background = "field"; state.quest = "intro"; state.progress = 0; state.affection = {}; state.flags = {}; state.log = []; state.title = true; state.dialoguePage = 0; state.appliedEffects = new Set(); state.characters = []; render(); }
 function playCurrent(){ const node = currentNode(); state.title = false; state.dialoguePage = 0; state.background = node.bg || state.background; state.quest = node.quest || state.quest; state.progress = typeof node.progress === "number" ? node.progress : state.progress; state.characters = structuredClone(node.characters || []); state.appliedEffects = new Set(); render(); }
 function openPanel(tab){ state.tab = tab || state.tab; els.panel.style.display = "block"; els.panel.style.visibility = "visible"; els.panel.style.pointerEvents = "auto"; els.panel.classList.add("open"); renderPanel(); }
 function closePanel(){ if(els.panel){ els.panel.classList.remove("open"); els.panel.style.display = "none"; els.panel.style.visibility = "hidden"; els.panel.style.pointerEvents = "none"; } }
 function togglePanel(tab){ if(els.panel.classList.contains("open") && (!tab || state.tab === tab)){ closePanel(); return; } openPanel(tab); }
-function renderPanel(){ document.querySelectorAll(".tabs button").forEach(function(b){ b.classList.toggle("active", b.dataset.tab === state.tab); }); clear(els.panelContent); if(state.tab === "log"){ if(!state.log.length) els.panelContent.appendChild(make("article", "info-entry", "아직 기록된 대화가 없습니다.")); state.log.forEach(function(entry){ const a = make("article", "log-entry"); a.appendChild(make("strong", "", entry.speaker)); a.appendChild(make("span", "", entry.text)); els.panelContent.appendChild(a); }); } if(state.tab === "quests"){ Object.entries(scenario.quests).forEach(function(pair){ const id = pair[0]; const q = pair[1]; const a = make("article", "info-entry"); a.appendChild(make("strong", "", q.title)); a.appendChild(make("span", "", q.steps.map(function(s, i){ return ((id === state.quest && i <= state.progress) ? "✓ " : "· ") + s; }).join("\\n"))); els.panelContent.appendChild(a); }); } if(state.tab === "characters"){ Object.entries(scenario.characters).forEach(function(pair){ const id = pair[0]; const ch = pair[1]; const a = make("article", "info-entry"); a.appendChild(make("strong", "", ch.name + " · 호감도 " + (state.affection[id] || 0))); a.appendChild(make("span", "", ch.note)); els.panelContent.appendChild(a); }); } }
+function renderPanel(){
+  document.querySelectorAll(".tabs button").forEach(function(b){ b.classList.toggle("active", b.dataset.tab === state.tab); });
+  clear(els.panelContent);
+  if(state.tab === "log"){
+    if(!state.log.length) els.panelContent.appendChild(make("article", "info-entry", "아직 기록된 대화가 없습니다."));
+    state.log.forEach(function(entry){ const a = make("article", "log-entry"); a.appendChild(make("strong", "", entry.speaker)); a.appendChild(make("span", "", entry.text)); els.panelContent.appendChild(a); });
+  }
+  if(state.tab === "quests"){
+    Object.entries(scenario.quests).forEach(function(pair){
+      const id = pair[0]; const q = pair[1];
+      const a = make("article", "info-entry");
+      a.appendChild(make("strong", "", q.title));
+      a.appendChild(make("span", "", (q.steps || []).map(function(s, i){ return ((id === state.quest && i <= state.progress) ? "✓ " : "· ") + s; }).join("\n")));
+      els.panelContent.appendChild(a);
+    });
+  }
+  if(state.tab === "characters"){
+    Object.entries(scenario.characters).forEach(function(pair){
+      const id = pair[0]; const ch = pair[1];
+      const a = make("article", "info-entry");
+      a.appendChild(make("strong", "", ch.name + " · 호감도 " + (state.affection[id] || 0)));
+      a.appendChild(make("span", "", ch.note));
+      els.panelContent.appendChild(a);
+    });
+  }
+}
 function switchEditorTab(tabName){
   state.editorTab = tabName;
   renderEditor();
 }
 function renderEditor(){ document.querySelectorAll(".editor-tabs button").forEach(function(b){ b.classList.toggle("active", b.dataset.editorTab === state.editorTab); }); clear(els.editorBody); if(state.editorTab === "scene") renderSceneEditor(); if(state.editorTab === "branch") renderBranchEditor(); if(state.editorTab === "stats") renderStatsEditor(); if(state.editorTab === "assets") renderAssetEditor(); if(state.editorTab === "export") renderExportEditor(); }
+function loadReviewCheckpointData(){
+  try {
+    const raw = localStorage.getItem(REVIEW_CHECKPOINT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function checkpointSummary(data){
+  if(!data) return "저장된 검수 포인트가 없습니다.";
+  return "저장 위치: " + (data.nodeId || "-") + " / 퀘스트: " + (data.quest || "-") + " / 완료 플래그 " + Object.keys(data.flags || {}).length + "개";
+}
+function reviewCheckpointSnapshot(){
+  return {
+    nodeId: state.nodeId,
+    background: state.background,
+    quest: state.quest,
+    progress: state.progress,
+    affection: structuredClone(state.affection || {}),
+    flags: structuredClone(state.flags || {}),
+    log: structuredClone(state.log || []),
+    auto: false,
+    title: false,
+    dialoguePage: state.dialoguePage,
+    appliedEffects: Array.from(state.appliedEffects || []),
+    characters: structuredClone(state.characters || []),
+    playerName: state.playerName || "",
+    territoryName: state.territoryName || ""
+  };
+}
+function saveReviewCheckpoint(){
+  const snapshot = reviewCheckpointSnapshot();
+  localStorage.setItem(REVIEW_CHECKPOINT_KEY, JSON.stringify(snapshot));
+  showToast("검수 포인트를 저장했습니다: " + snapshot.nodeId);
+  renderEditor();
+}
+function restoreReviewCheckpoint(){
+  const saved = loadReviewCheckpointData();
+  if(!saved){ showToast("저장된 검수 포인트가 없습니다."); return; }
+  const nodeId = findNodeIdLoose(saved.nodeId);
+  if(!nodeId){ showToast("검수 포인트 장면을 찾을 수 없습니다: " + saved.nodeId); return; }
+  state.nodeId = nodeId;
+  state.background = saved.background || "field";
+  state.quest = saved.quest || "intro";
+  state.progress = Number(saved.progress || 0);
+  state.affection = structuredClone(saved.affection || {});
+  state.flags = structuredClone(saved.flags || {});
+  state.log = structuredClone(saved.log || []);
+  state.auto = false;
+  state.title = false;
+  state.dialoguePage = Number(saved.dialoguePage || 0);
+  state.appliedEffects = new Set(saved.appliedEffects || []);
+  state.characters = structuredClone(saved.characters || []);
+  if(saved.playerName) savePlayerName(saved.playerName); else clearPlayerName();
+  if(saved.territoryName) saveTerritoryName(saved.territoryName); else clearTerritoryName();
+  closePanel();
+  showToast("검수 포인트부터 시작합니다: " + nodeId);
+  render();
+}
+function deleteReviewCheckpoint(){
+  localStorage.removeItem(REVIEW_CHECKPOINT_KEY);
+  showToast("검수 포인트를 삭제했습니다.");
+  renderEditor();
+}
+function renderReviewCheckpointControls(){
+  const box = make("div", "choice-editor manager-card review-checkpoint");
+  box.appendChild(make("strong", "", "검수 세이브포인트"));
+  box.appendChild(make("p", "muted", checkpointSummary(loadReviewCheckpointData())));
+  const row = make("div", "button-row");
+  row.appendChild(button("검수 포인트 저장", saveReviewCheckpoint));
+  row.appendChild(button("검수 포인트부터 시작", restoreReviewCheckpoint));
+  row.appendChild(button("삭제", deleteReviewCheckpoint));
+  box.appendChild(row);
+  els.editorBody.appendChild(box);
+}
 function renderSceneEditor(){
   const node = currentNode();
-  els.editorBody.appendChild(field("장면 ID", select(nodeIds(), state.nodeId, setCurrentNode)));
+  renderReviewCheckpointControls();
+  renderStoryStructureTools();
+  els.editorBody.appendChild(field("장면 ID", select(nodeIds(), state.nodeId, setCurrentNode, undefined, nodeLabel)));
+  els.editorBody.appendChild(draftTextField("장면 메모", false, node.memo || "", function(v){ setNodeField("memo", v.trim()); }));
   const row = make("div", "button-row");
   row.appendChild(button("장면 추가", addNode));
   row.appendChild(button("다음에 삽입", insertNodeAfter));
@@ -380,7 +876,7 @@ function renderSceneEditor(){
   els.editorBody.appendChild(draftTextField("대사", true, node.text || "", function(v){ setNodeField("text", v); }));
   const two = make("div", "two-col");
   two.appendChild(instantField("배경", select(bgIds(), node.bg || "", function(v){ setNodeField("bg", v); }, "없음")));
-  two.appendChild(instantField("다음 장면", select(nodeIds(), node.next || "", function(v){ setNodeField("next", v); }, "없음")));
+  two.appendChild(instantField("다음 장면", select(nodeIds(), node.next || "", function(v){ setNodeField("next", v); }, "없음", nodeLabel)));
   els.editorBody.appendChild(two);
   const two2 = make("div", "two-col");
   two2.appendChild(instantField("퀘스트", select(questIds(), node.quest || "", function(v){ setNodeField("quest", v); }, "없음")));
@@ -396,29 +892,241 @@ function renderSceneEditor(){
   });
   els.editorBody.appendChild(button("캐릭터 추가", function(){ updateNode(function(n){ n.characters = n.characters || []; n.characters.push({ id: charIds()[0], position: "center" }); }); }));
 }
+function choiceMode(choice){ return choice.reset ? "reset" : (choice.action || ""); }
+function choiceActionSelect(selected, onChange){
+  const el = document.createElement("select");
+  [
+    { value: "", label: "일반 이동" },
+    { value: "openLog", label: "대화 로그 열기" },
+    { value: "reset", label: "처음부터 다시 보기" }
+  ].forEach(function(item){
+    const opt = document.createElement("option");
+    opt.value = item.value;
+    opt.textContent = item.label;
+    opt.selected = item.value === selected;
+    el.appendChild(opt);
+  });
+  el.addEventListener("change", function(){ onChange(el.value); });
+  return el;
+}
+function choiceCompleteSelect(selected, onChange){
+  const el = document.createElement("select");
+  [
+    { value: "stay", label: "일반 분기" },
+    { value: "auto", label: "남은 선택지 없으면 다음 장면으로" }
+  ].forEach(function(item){
+    const opt = document.createElement("option");
+    opt.value = item.value;
+    opt.textContent = item.label;
+    opt.selected = item.value === selected;
+    el.appendChild(opt);
+  });
+  el.addEventListener("change", function(){ onChange(el.value); });
+  return el;
+}
+function applyChoiceMode(choice, mode){
+  delete choice.action;
+  delete choice.reset;
+  if(mode === "openLog"){
+    choice.action = "openLog";
+    delete choice.next;
+  } else if(mode === "reset"){
+    choice.reset = true;
+    delete choice.next;
+  } else if(choice.next == null){
+    choice.next = "";
+  }
+}
 function renderBranchEditor(){
   const node = currentNode();
   els.editorBody.appendChild(make("div", "section-title", "선택지 분기"));
+  els.editorBody.appendChild(make("p", "muted", "선택지는 일반 이동 외에도 대화 로그 열기, 처음부터 다시 보기 같은 특수 동작을 줄 수 있습니다."));
+  els.editorBody.appendChild(instantField("분기 완료 후", choiceCompleteSelect(node.autoNextWhenChoicesDone ? "auto" : "stay", function(v){
+    updateNode(function(n){
+      if(v === "auto"){
+        n.autoNextWhenChoicesDone = true;
+        (n.choices || []).forEach(function(choice){ ensureChoiceCompletion(scenario, choice); });
+      } else delete n.autoNextWhenChoicesDone;
+    });
+  })));
+  els.editorBody.appendChild(make("p", "muted", node.autoNextWhenChoicesDone ? "모든 선택지를 완료하고 이 장면으로 돌아오면 다음 장면으로 바로 이어집니다." : "일반 분기처럼 선택지 장면을 그대로 표시합니다."));
   if(!node.choices || !node.choices.length) els.editorBody.appendChild(make("p", "muted", "선택지가 없는 직선 진행 장면입니다."));
   (node.choices || []).forEach(function(choice, index){
     const box = make("div", "choice-editor");
     box.appendChild(draftTextField("선택지 문구", false, choice.text || "", function(v){
       updateNode(function(n){ n.choices[index].text = v; });
     }));
-    box.appendChild(instantField("이동 장면", select(nodeIds(), choice.next || "", function(v){
-      updateNode(function(n){ n.choices[index].next = v; });
-    }, "없음")));
-    box.appendChild(button("선택지 삭제", function(){
+    box.appendChild(instantField("동작", choiceActionSelect(choiceMode(choice), function(v){
+      updateNode(function(n){ applyChoiceMode(n.choices[index], v); });
+    })));
+    if(!choice.reset && choice.action !== "openLog"){
+      box.appendChild(instantField("이동 장면", select(nodeIds(), choice.next || "", function(v){
+        updateNode(function(n){
+          n.choices[index].next = v;
+          if(n.autoNextWhenChoicesDone) ensureChoiceCompletion(scenario, n.choices[index]);
+        });
+      }, "없음", nodeLabel)));
+      box.appendChild(draftTextField("선택 후 숨김 플래그", false, choice.hideIfFlag || "", function(v){
+        updateNode(function(n){
+          const clean = v.trim();
+          if(clean){
+            n.choices[index].hideIfFlag = clean;
+            ensureChoiceCompletion(scenario, n.choices[index]);
+          } else delete n.choices[index].hideIfFlag;
+        });
+      }));
+    } else {
+      box.appendChild(make("p", "muted", choice.reset ? "선택하면 게임을 처음부터 다시 시작합니다." : "선택하면 대화 로그 패널을 엽니다."));
+    }
+    const orderRow = make("div", "button-row");
+    orderRow.appendChild(button("위로", function(){
+      if(index <= 0) return;
+      updateNode(function(n){ const moved = n.choices.splice(index, 1)[0]; n.choices.splice(index - 1, 0, moved); });
+    }));
+    orderRow.appendChild(button("아래로", function(){
+      updateNode(function(n){ if(index >= n.choices.length - 1) return; const moved = n.choices.splice(index, 1)[0]; n.choices.splice(index + 1, 0, moved); });
+    }));
+    orderRow.appendChild(button("선택지 삭제", function(){
       updateNode(function(n){ n.choices.splice(index, 1); if(!n.choices.length) delete n.choices; });
     }));
+    box.appendChild(orderRow);
     els.editorBody.appendChild(box);
   });
-  els.editorBody.appendChild(button("선택지 추가", function(){
-    updateNode(function(n){ n.choices = n.choices || []; n.choices.push({ text: "새 선택지", next: n.next || "" }); });
+  const branchRow = make("div", "button-row");
+  branchRow.appendChild(button("선택지 추가", function(){
+    updateNode(function(n){
+      n.choices = n.choices || [];
+      const choice = { text: "새 선택지", next: n.next || "" };
+      n.choices.push(choice);
+      if(n.autoNextWhenChoicesDone) ensureChoiceCompletion(scenario, choice);
+    });
   }));
+  branchRow.appendChild(button("분기 장면 추가", addBranchNode));
+  els.editorBody.appendChild(branchRow);
 }
-function renderStatsEditor(){ const node = currentNode(); els.editorBody.appendChild(make("div", "section-title", "현재 장면 효과")); if(!node.effects || !node.effects.length) els.editorBody.appendChild(make("p", "muted", "아직 적용 효과가 없습니다.")); (node.effects || []).forEach(function(effect, index){ const box = make("div", "choice-editor"); box.appendChild(make("strong", "", effect.type === "quest" ? "퀘스트 효과" : "호감도 효과")); if(effect.type === "quest"){ box.appendChild(field("퀘스트", select(questIds(), effect.quest || "", function(v){ updateNode(function(n){ n.effects[index].quest = v; }); }))); box.appendChild(field("단계", input(String(effect.step || 0), function(v){ updateNode(function(n){ n.effects[index].step = Number(v || 0); }); }, "number"))); } else { box.appendChild(field("대상", select(charIds(), effect.character || charIds()[0], function(v){ updateNode(function(n){ n.effects[index].character = v; }); }))); box.appendChild(field("증감", input(String(effect.amount || 0), function(v){ updateNode(function(n){ n.effects[index].amount = Number(v || 0); }); }, "number"))); } box.appendChild(field("표시 문구", input(effect.label || "", function(v){ updateNode(function(n){ n.effects[index].label = v; }); }))); box.appendChild(button("효과 삭제", function(){ updateNode(function(n){ n.effects.splice(index, 1); if(!n.effects.length) delete n.effects; }); })); els.editorBody.appendChild(box); }); const row = make("div", "button-row"); row.appendChild(button("호감도 효과 추가", function(){ updateNode(function(n){ n.effects = n.effects || []; n.effects.push({ type: "affection", character: charIds()[0], amount: 1, label: "호감도 +1" }); }); })); row.appendChild(button("퀘스트 효과 추가", function(){ updateNode(function(n){ n.effects = n.effects || []; n.effects.push({ type: "quest", quest: state.quest, step: state.progress, label: "퀘스트 진행" }); }); })); els.editorBody.appendChild(row); els.editorBody.appendChild(make("div", "section-title", "테스트용 현재 호감도")); charIds().forEach(function(id){ const wrap = make("label", "field range-field"); wrap.appendChild(make("span", "", scenario.characters[id].name)); const r = document.createElement("input"); r.type = "range"; r.min = 0; r.max = 10; r.value = state.affection[id] || 0; const val = make("strong", "", String(r.value)); r.addEventListener("input", function(){ state.affection[id] = Number(r.value); val.textContent = r.value; renderHud(); }); wrap.appendChild(r); wrap.appendChild(val); els.editorBody.appendChild(wrap); }); }
-function renderAssetEditor(){ els.editorBody.appendChild(make("div", "section-title", "배경 이미지")); bgIds().forEach(function(id){ els.editorBody.appendChild(field(id, input(scenario.assets.backgrounds[id] || "", function(v){ scenario.assets.backgrounds[id] = v; saveDraft(); render(); }))); }); const row = make("div", "button-row"); const newBg = input("", function(){}); newBg.placeholder = "새 배경 ID"; row.appendChild(newBg); row.appendChild(button("배경 추가", function(){ const id = newBg.value.trim(); if(!id) return; scenario.assets.backgrounds[id] = "./assets/새배경.png"; saveDraft(); render(); })); els.editorBody.appendChild(row); els.editorBody.appendChild(make("div", "section-title", "캐릭터 이미지")); charIds().forEach(function(id){ els.editorBody.appendChild(field(scenario.characters[id].name, input(scenario.assets.characters[id] || "", function(v){ scenario.assets.characters[id] = v; saveDraft(); render(); }))); }); const prev = make("div", "asset-preview"); const img = document.createElement("img"); img.src = scenario.assets.backgrounds[state.background] || ""; prev.appendChild(img); els.editorBody.appendChild(prev); els.editorBody.appendChild(make("p", "muted", "이미지는 ./assets/파일명.png 또는 웹 주소로 바꿀 수 있습니다.")); }
+function renderStatsEditor(){
+  const node = currentNode();
+  els.editorBody.appendChild(make("div", "section-title", "현재 장면 효과"));
+  if(!node.effects || !node.effects.length) els.editorBody.appendChild(make("p", "muted", "아직 적용 효과가 없습니다."));
+  (node.effects || []).forEach(function(effect, index){
+    const box = make("div", "choice-editor");
+    box.appendChild(make("strong", "", effect.type === "quest" ? "퀘스트 효과" : "호감도 효과"));
+    if(effect.type === "quest"){
+      box.appendChild(field("퀘스트", select(questIds(), effect.quest || "", function(v){ updateNode(function(n){ n.effects[index].quest = v; }); })));
+      box.appendChild(field("단계", input(String(effect.step || 0), function(v){ updateNode(function(n){ n.effects[index].step = Number(v || 0); }); }, "number")));
+    } else {
+      box.appendChild(field("대상", select(charIds(), effect.character || charIds()[0], function(v){ updateNode(function(n){ n.effects[index].character = v; }); })));
+      box.appendChild(field("증감", input(String(effect.amount || 0), function(v){ updateNode(function(n){ n.effects[index].amount = Number(v || 0); }); }, "number")));
+    }
+    box.appendChild(field("표시 문구", input(effect.label || "", function(v){ updateNode(function(n){ n.effects[index].label = v; }); })));
+    box.appendChild(button("효과 삭제", function(){ updateNode(function(n){ n.effects.splice(index, 1); if(!n.effects.length) delete n.effects; }); }));
+    els.editorBody.appendChild(box);
+  });
+  const row = make("div", "button-row");
+  row.appendChild(button("호감도 효과 추가", function(){ updateNode(function(n){ n.effects = n.effects || []; n.effects.push({ type: "affection", character: charIds()[0], amount: 1, label: "호감도 +1" }); }); }));
+  row.appendChild(button("퀘스트 효과 추가", function(){ updateNode(function(n){ n.effects = n.effects || []; n.effects.push({ type: "quest", quest: state.quest || questIds()[0], step: state.progress, label: "퀘스트 진행" }); }); }));
+  els.editorBody.appendChild(row);
+
+  els.editorBody.appendChild(make("div", "section-title", "퀘스트 관리"));
+  els.editorBody.appendChild(make("p", "muted", "퀘스트는 제목과 단계 목록으로 구성됩니다. 장면 탭에서 현재 퀘스트와 진행 단계를 선택하면 HUD와 퀘스트 로그에 표시됩니다."));
+  Object.entries(scenario.quests).forEach(function(pair){
+    const id = pair[0]; const quest = pair[1];
+    const box = make("div", "choice-editor manager-card");
+    box.appendChild(make("strong", "", id + " · " + quest.title));
+    box.appendChild(draftTextField("퀘스트 제목", false, quest.title || "", function(v){ scenario.quests[id].title = v.trim() || id; saveDraft(); render(); }));
+    box.appendChild(draftTextField("단계 목록", true, (quest.steps || []).join("\n"), function(v){ scenario.quests[id].steps = stepLines(v); saveDraft(); render(); }));
+    box.appendChild(button("퀘스트 삭제", function(){ deleteQuest(id); }));
+    els.editorBody.appendChild(box);
+  });
+  const addBox = make("div", "choice-editor manager-card");
+  addBox.appendChild(make("strong", "", "새 퀘스트 추가"));
+  const qId = plainInput("", "quest_id");
+  const qTitle = plainInput("", "퀘스트 제목");
+  const qSteps = plainTextarea("", "단계를 한 줄에 하나씩 입력", 4);
+  addBox.appendChild(field("퀘스트 ID", qId));
+  addBox.appendChild(field("제목", qTitle));
+  addBox.appendChild(field("단계", qSteps));
+  addBox.appendChild(button("퀘스트 추가", function(){ addQuest(qId.value, qTitle.value, qSteps.value); }));
+  els.editorBody.appendChild(addBox);
+
+  els.editorBody.appendChild(make("div", "section-title", "테스트용 현재 호감도"));
+  charIds().forEach(function(id){
+    const wrap = make("label", "field range-field");
+    wrap.appendChild(make("span", "", scenario.characters[id].name));
+    const r = document.createElement("input"); r.type = "range"; r.min = 0; r.max = 10; r.value = state.affection[id] || 0;
+    const val = make("strong", "", String(r.value));
+    r.addEventListener("input", function(){ state.affection[id] = Number(r.value); val.textContent = r.value; renderHud(); });
+    wrap.appendChild(r); wrap.appendChild(val); els.editorBody.appendChild(wrap);
+  });
+}
+function renderAssetEditor(){
+  els.editorBody.appendChild(make("div", "section-title", "배경 이미지"));
+  bgIds().forEach(function(id){ els.editorBody.appendChild(field(id, input(scenario.assets.backgrounds[id] || "", function(v){ scenario.assets.backgrounds[id] = v; saveDraft(); render(); }))); });
+  const row = make("div", "button-row");
+  const newBg = input("", function(){}); newBg.placeholder = "새 배경 ID";
+  row.appendChild(newBg);
+  row.appendChild(button("배경 추가", function(){ const id = cleanId(newBg.value, "bg"); if(!id) return; scenario.assets.backgrounds[uniqueKey(scenario.assets.backgrounds, id)] = "./assets/새배경.png"; saveDraft(); render(); }));
+  els.editorBody.appendChild(row);
+
+  els.editorBody.appendChild(make("div", "section-title", "인물 관리"));
+  els.editorBody.appendChild(make("p", "muted", "인물은 이름, 설명, 이미지 경로로 구성됩니다. 장면 탭의 등장 캐릭터와 수치 탭의 호감도 효과에서 사용됩니다."));
+  charIds().forEach(function(id){
+    const character = scenario.characters[id];
+    const box = make("div", "choice-editor manager-card");
+    box.appendChild(make("strong", "", id + " · " + (character.name || id)));
+    box.appendChild(draftTextField("인물 이름", false, character.name || "", function(v){ scenario.characters[id].name = v.trim() || id; saveDraft(); render(); }));
+    box.appendChild(draftTextField("인물 설명", true, character.note || "", function(v){ scenario.characters[id].note = v; saveDraft(); render(); }));
+    box.appendChild(field("이미지", input(scenario.assets.characters[id] || "", function(v){ scenario.assets.characters[id] = v; saveDraft(); render(); })));
+    box.appendChild(button("인물 삭제", function(){ deleteCharacter(id); }));
+    els.editorBody.appendChild(box);
+  });
+  const addBox = make("div", "choice-editor manager-card");
+  addBox.appendChild(make("strong", "", "새 인물 추가"));
+  const cId = plainInput("", "character_id");
+  const cName = plainInput("", "이름");
+  const cNote = plainTextarea("", "설명", 3);
+  const cImage = plainInput("", "./assets/char-name.png");
+  addBox.appendChild(field("인물 ID", cId));
+  addBox.appendChild(field("이름", cName));
+  addBox.appendChild(field("설명", cNote));
+  addBox.appendChild(field("이미지", cImage));
+  addBox.appendChild(button("인물 추가", function(){ addCharacter(cId.value, cName.value, cNote.value, cImage.value); }));
+  els.editorBody.appendChild(addBox);
+
+  const prev = make("div", "asset-preview");
+  const img = document.createElement("img"); img.src = scenario.assets.backgrounds[state.background] || ""; prev.appendChild(img);
+  els.editorBody.appendChild(prev);
+  els.editorBody.appendChild(make("p", "muted", "이미지는 ./assets/파일명.png 또는 웹 주소로 바꿀 수 있습니다."));
+}
+function addQuest(rawId, title, steps){
+  const id = uniqueKey(scenario.quests, cleanId(rawId || title, "quest"));
+  scenario.quests[id] = { title: String(title || id).trim() || id, steps: stepLines(steps) };
+  if(!scenario.quests[id].steps.length) scenario.quests[id].steps = ["새 단계"];
+  saveDraft(); render(); showToast("퀘스트를 추가했습니다: " + id);
+}
+function deleteQuest(id){
+  const inUse = Object.values(scenario.nodes).some(function(node){ return node.quest === id || (node.effects || []).some(function(effect){ return effect.quest === id; }); });
+  if(inUse){ showToast("사용 중인 퀘스트는 삭제할 수 없습니다."); return; }
+  delete scenario.quests[id];
+  if(state.quest === id) state.quest = questIds()[0] || "";
+  saveDraft(); render(); showToast("퀘스트를 삭제했습니다.");
+}
+function addCharacter(rawId, name, note, image){
+  const id = uniqueKey(scenario.characters, cleanId(rawId || name, "character"));
+  scenario.characters[id] = { name: String(name || id).trim() || id, note: String(note || "") };
+  scenario.assets.characters[id] = String(image || "./assets/char-" + id + ".png").trim();
+  saveDraft(); render(); showToast("인물을 추가했습니다: " + id);
+}
+function deleteCharacter(id){
+  const inUse = Object.values(scenario.nodes).some(function(node){
+    return (node.characters || []).some(function(ch){ return ch.id === id; }) || (node.effects || []).some(function(effect){ return effect.character === id; });
+  });
+  if(inUse){ showToast("사용 중인 인물은 삭제할 수 없습니다."); return; }
+  delete scenario.characters[id];
+  delete scenario.assets.characters[id];
+  delete state.affection[id];
+  saveDraft(); render(); showToast("인물을 삭제했습니다.");
+}
 function appendPublishControls(){
   const publishRow = make("div", "button-row");
   publishRow.appendChild(button("결과만 보기", openPublishedView));
@@ -436,7 +1144,7 @@ function renderExportEditor(){
   csvRow.appendChild(button("CSV 내보내기", exportScenarioCsv));
   csvRow.appendChild(button("결과만 보기", openPublishedView));
   els.editorBody.appendChild(csvRow);
-  els.editorBody.appendChild(make("p", "muted", "엑셀에서 장면ID, 화자, 대사, 배경, 다음장면, 퀘스트, 진행단계를 수정한 뒤 다시 가져올 수 있습니다. 등장캐릭터는 lord:left; liddy:right, 선택지는 문구 -> 장면ID 형식으로 입력합니다."));
+  els.editorBody.appendChild(make("p", "muted", "엑셀에서 장면ID, 화자, 대사, 배경, 다음장면, 퀘스트, 진행단계, 분기완료를 수정한 뒤 다시 가져올 수 있습니다. 등장캐릭터는 lord:left; liddy:right, 선택지는 문구 -> 장면ID 형식으로 입력합니다. 올클리어 분기는 분기완료에 auto를 입력합니다."));
 
   const box = document.createElement("textarea");
   box.id = "exportText";
@@ -462,7 +1170,7 @@ function renderExportEditor(){
   els.editorBody.appendChild(make("p", "muted", "변경 사항은 브라우저에 자동 저장됩니다. 팀원에게 보여줄 때는 결과만 보기 링크를 사용하세요."));
 }
 
-const SCENARIO_COLUMNS = ["장면ID", "화자", "대사", "배경", "다음장면", "퀘스트", "진행단계", "등장캐릭터", "선택지", "효과"];
+const SCENARIO_COLUMNS = ["장면ID", "메모", "화자", "대사", "배경", "다음장면", "퀘스트", "진행단계", "등장캐릭터", "선택지", "분기완료", "효과"];
 function escapeHtml(value){ return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function sceneRows(sourceScenario){
   const source = sourceScenario || reindexScenarioCopy(scenario).scenario;
@@ -471,6 +1179,7 @@ function sceneRows(sourceScenario){
     const node = pair[1];
     return {
       "장면ID": id,
+      "메모": node.memo || "",
       "화자": node.speaker || "",
       "대사": node.text || "",
       "배경": node.bg || "",
@@ -479,6 +1188,7 @@ function sceneRows(sourceScenario){
       "진행단계": typeof node.progress === "number" ? String(node.progress) : "",
       "등장캐릭터": formatCharacters(node.characters),
       "선택지": formatChoices(node.choices),
+      "분기완료": node.autoNextWhenChoicesDone ? "auto" : "",
       "효과": formatEffects(node.effects)
     };
   });
@@ -492,7 +1202,19 @@ function parseCharacters(value){
     return { id: (pieces[0] || "").trim(), position: (pieces[1] || "center").trim() || "center" };
   }).filter(function(ch){ return ch && ch.id; });
 }
-function formatChoices(choices){ return (choices || []).map(function(choice){ return (choice.text || "") + " -> " + (choice.next || ""); }).join("; "); }
+function formatChoiceTarget(choice){
+  if(choice.reset) return "@reset";
+  if(choice.action) return "@" + choice.action;
+  return choice.next || "";
+}
+function parseChoiceTarget(text, target){
+  const clean = String(target || "").trim();
+  const lower = clean.replace(/^@/, "").toLowerCase();
+  if(lower === "reset" || lower === "??") return { text: text, reset: true };
+  if(lower === "openlog" || lower === "log" || lower === "????" || lower === "action:openlog") return { text: text, action: "openLog" };
+  return { text: text, next: clean };
+}
+function formatChoices(choices){ return (choices || []).map(function(choice){ return (choice.text || "") + " -> " + formatChoiceTarget(choice); }).join("; "); }
 function parseChoices(value){
   return String(value || "").split(";").map(function(part){
     const text = part.trim();
@@ -500,7 +1222,7 @@ function parseChoices(value){
     const arrow = text.includes("->") ? "->" : (text.includes("=>") ? "=>" : null);
     if(!arrow) return { text: text, next: "" };
     const pieces = text.split(arrow);
-    return { text: (pieces[0] || "").trim(), next: (pieces.slice(1).join(arrow) || "").trim() };
+    return parseChoiceTarget((pieces[0] || "").trim(), pieces.slice(1).join(arrow));
   }).filter(Boolean);
 }
 function formatEffects(effects){ return effects && effects.length ? JSON.stringify(effects) : ""; }
@@ -600,6 +1322,7 @@ function applyScenarioRows(tableRows){
     if(!id) return;
     const previous = scenario.nodes[id] || {};
     const node = { ...previous };
+    setOptional(node, "memo", cell(row, index, "메모"));
     node.speaker = cell(row, index, "화자");
     node.text = cell(row, index, "대사");
     setOptional(node, "bg", cell(row, index, "배경"));
@@ -611,6 +1334,9 @@ function applyScenarioRows(tableRows){
     if(chars.length) node.characters = chars; else delete node.characters;
     const choices = parseChoices(cell(row, index, "선택지"));
     if(choices.length) node.choices = choices; else delete node.choices;
+    const completion = cell(row, index, "분기완료").toLowerCase();
+    if(completion === "auto" || completion === "all" || completion === "올클리어") node.autoNextWhenChoicesDone = true;
+    else delete node.autoNextWhenChoicesDone;
     const effects = parseEffects(cell(row, index, "효과"));
     if(effects.length) node.effects = effects; else delete node.effects;
     reordered[id] = node;
@@ -677,7 +1403,56 @@ function insertNodeAfter(){
   setCurrentNode(newId);
   showToast(state.nodeId + " 장면을 삽입했습니다.");
 }
-function addNode(){ let i = nodeIds().length + 1; let id = "scene_" + String(i).padStart(3, "0"); while(scenario.nodes[id]){ i++; id = "scene_" + String(i).padStart(3, "0"); } scenario.nodes[id] = { speaker: "화면", text: "새 장면입니다.", next: "" }; saveDraft(); setCurrentNode(id); }
+function nextSequentialSceneId(){
+  let i = nodeIds().length + 1;
+  let id = "scene_" + String(i).padStart(3, "0");
+  while(scenario.nodes[id]){
+    i++;
+    id = "scene_" + String(i).padStart(3, "0");
+  }
+  return id;
+}
+function makeContinuationNode(fromNode, nextId){
+  const node = {
+    speaker: fromNode?.speaker || "화면",
+    text: "새 장면입니다."
+  };
+  if(nextId) node.next = nextId;
+  if(fromNode?.bg) node.bg = fromNode.bg;
+  if(fromNode?.quest) node.quest = fromNode.quest;
+  if(typeof fromNode?.progress === "number") node.progress = fromNode.progress;
+  if(fromNode?.characters) node.characters = structuredClone(fromNode.characters);
+  return node;
+}
+function addNode(){
+  const previousId = state.nodeId;
+  const previousNode = currentNode();
+  if(previousNode && previousNode.choices && previousNode.choices.length){
+    showToast("선택지가 있는 장면은 분기 탭의 선택지 추가를 사용해 주세요.");
+    return;
+  }
+  const oldNext = previousNode?.next || "";
+  const newId = nextSequentialSceneId();
+  scenario.nodes[newId] = makeContinuationNode(previousNode, oldNext);
+  if(previousNode) previousNode.next = newId;
+  saveDraft();
+  setCurrentNode(newId);
+  showToast(previousId + " -> " + newId + (oldNext ? " -> " + oldNext : "") + " 흐름으로 연결했습니다.");
+}
+function addBranchNode(){
+  const node = currentNode();
+  if(!node) return;
+  const newId = nextSequentialSceneId();
+  scenario.nodes[newId] = makeContinuationNode(node, node.next || "");
+  node.choices = node.choices || [];
+  const choice = { text: "새 분기", next: newId };
+  node.choices.push(choice);
+  if(node.autoNextWhenChoicesDone) ensureChoiceCompletion(scenario, choice);
+  saveDraft();
+  state.editorTab = "branch";
+  setCurrentNode(newId);
+  showToast("새 분기 선택지와 " + newId + " 장면을 만들었습니다.");
+}
 function duplicateNode(){ let id = state.nodeId + "_copy"; let i = 2; while(scenario.nodes[id]) id = state.nodeId + "_copy" + i++; scenario.nodes[id] = structuredClone(currentNode()); saveDraft(); setCurrentNode(id); }
 function removeNode(){
   if(state.nodeId === scenario.start){ showToast("시작 장면은 삭제할 수 없습니다."); return; }
@@ -702,7 +1477,11 @@ function showToast(message){ const toast = make("div", "toast", message); docume
 els.backdrop.addEventListener("load", function(){ els.backdrop.classList.add("loaded"); });
 els.next.addEventListener("click", next);
 if(els.start) els.start.addEventListener("click", startGame);
-document.querySelector(".dialogue").addEventListener("click", function(event){ if(!event.target.closest("button")) next(); });
+document.querySelector(".dialogue").addEventListener("click", function(event){
+  const interactive = event.target.closest("button, input, textarea, select, label, .name-entry, .choice");
+  if(interactive) return;
+  next();
+});
 els.auto.addEventListener("click", function(){ state.auto = !state.auto; els.auto.classList.toggle("active", state.auto); scheduleAuto(); });
 els.log.addEventListener("click", function(){ togglePanel("log"); });
 els.reset.addEventListener("click", resetGame);

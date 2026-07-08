@@ -5,7 +5,10 @@ window.FARM_VILLAGE_SCENARIO = {
     "backgrounds": {
       "comic_intro": "./assets/comic-intro.png",
       "field": "./assets/bg-isometric-farm.png",
-      "dining": "./assets/bg-dining.png"
+      "dining": "./assets/bg-dining.png",
+      "bg": "./assets/bg-wall.png",
+      "bg_2": "./assets/bg-storage.png",
+      "cleanwell": "./assets/bg-cleanwell.png"
     },
     "characters": {
       "lord": "./assets/char-lord-sheet.png",
@@ -71,6 +74,7 @@ window.FARM_VILLAGE_SCENARIO = {
   "start": "scene_001",
   "nodes": {
     "scene_001": {
+      "nameInput": true,
       "quest": "intro",
       "progress": 0,
       "speaker": "주인공",

@@ -83,3 +83,17 @@ html.publish-page body{min-height:100dvh!important;display:grid!important;place-
 html.publish-page .app{display:block!important;position:relative!important;width:min(100vw,calc(100dvh * 1024 / 1792))!important;height:min(100dvh,calc(100vw * 1792 / 1024))!important;min-height:0!important;aspect-ratio:1024/1792!important;margin:auto!important;overflow:hidden!important;background:#0d1210!important}
 html.publish-page .editor{display:none!important}
 html.publish-page .stage{width:100%!important;height:100%!important;min-height:0!important}
+
+/* player name input */
+.name-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;width:min(520px,100%);align-items:center}.name-entry input{min-height:42px;border:1px solid rgba(245,200,106,.36);background:rgba(0,0,0,.34);color:var(--ink);padding:0 12px;outline:none}.name-entry input:focus{border-color:rgba(245,200,106,.78);box-shadow:0 0 0 2px rgba(245,200,106,.12)}.name-entry button{min-height:42px;padding:0 14px;border:1px solid rgba(245,200,106,.42);background:rgba(245,200,106,.2);color:var(--ink)}@media(max-width:720px){.name-entry{grid-template-columns:1fr}.name-entry button{width:100%}}
+
+/* visible player name entry */
+.dialogue.has-name-entry{overflow:visible!important}.dialogue.has-name-entry .choices{position:absolute!important;left:24px!important;right:24px!important;bottom:calc(100% + 12px)!important;display:grid!important;grid-template-columns:1fr!important;gap:8px!important;overflow:visible!important;z-index:9!important}.dialogue.has-name-entry .name-entry{width:100%!important;padding:10px;border:1px solid rgba(245,200,106,.28);background:rgba(15,18,18,.92);box-shadow:0 12px 32px rgba(0,0,0,.36)}@media(max-width:720px){.dialogue.has-name-entry .choices{left:0!important;right:0!important;bottom:calc(100% + 8px)!important}.dialogue.has-name-entry .name-entry{padding:8px}}
+
+
+/* dialogue editor preview */
+.dialogue-script-field .dialogue-script-input{font-size:20px!important;line-height:1.55!important;white-space:pre-line!important;word-break:keep-all!important;overflow-wrap:break-word!important;resize:vertical!important;min-height:calc(1.55em * 5 + 24px)!important;background:rgba(8,11,10,.38)!important}.dialogue-page-preview{border:1px solid rgba(245,200,106,.28);background:rgba(12,15,17,.58);color:var(--ink);padding:10px 12px;white-space:pre-line;font-size:18px;line-height:1.42;word-break:keep-all;overflow-wrap:break-word}.dialogue-page-preview::before{content:"실제 대사창 페이지";display:block;margin-bottom:7px;color:var(--gold);font-size:12px;line-height:1.2}@media(max-width:720px){.dialogue-script-field .dialogue-script-input{font-size:18px!important;line-height:1.42!important}.dialogue-page-preview{font-size:17px;line-height:1.42}}
+
+
+/* story structure tools */
+.story-tools{gap:10px}.story-list{display:grid;gap:6px}.story-list strong{color:var(--gold);font-size:13px}.story-list-items{display:flex;flex-wrap:wrap;gap:6px}.story-pill{display:inline-flex;align-items:center;max-width:100%;padding:5px 8px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.07);color:var(--ink);font-size:12px;line-height:1.25}.muted-pill{color:var(--muted)}
