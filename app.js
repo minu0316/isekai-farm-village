@@ -1133,6 +1133,13 @@ function appendPublishControls(){
   publishRow.appendChild(button("공유 링크 복사", copyPublishedLink));
   els.editorBody.appendChild(publishRow);
 }
+function scenarioJsText(){
+  return "window.FARM_VILLAGE_SCENARIO = " + JSON.stringify(scenario, null, 2) + ";\n";
+}
+function exportScenarioJs(){
+  downloadText("scenario.js", scenarioJsText(), "text/javascript;charset=utf-8");
+  showToast("GitHub용 scenario.js를 다운로드했습니다.");
+}
 function renderExportEditor(){
   els.editorBody.appendChild(make("div", "section-title", "엑셀 시나리오 입력양식"));
   const excelRow = make("div", "button-row");
@@ -1165,9 +1172,10 @@ function renderExportEditor(){
 
   const publishRow = make("div", "button-row");
   publishRow.appendChild(button("공유 링크 복사", copyPublishedLink));
+  publishRow.appendChild(button("GitHub용 scenario.js 다운로드", exportScenarioJs));
   els.editorBody.appendChild(publishRow);
 
-  els.editorBody.appendChild(make("p", "muted", "변경 사항은 브라우저에 자동 저장됩니다. 팀원에게 보여줄 때는 결과만 보기 링크를 사용하세요."));
+  els.editorBody.appendChild(make("p", "muted", "변경 사항은 브라우저에 자동 저장됩니다. 짧은 GitHub 주소에 반영하려면 scenario.js를 내려받아 github-pages-upload/data/scenario.js로 교체한 뒤 업로드하세요."));
 }
 
 const SCENARIO_COLUMNS = ["장면ID", "메모", "화자", "대사", "배경", "다음장면", "퀘스트", "진행단계", "등장캐릭터", "선택지", "분기완료", "효과"];
