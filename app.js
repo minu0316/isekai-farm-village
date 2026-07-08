@@ -16,7 +16,15 @@ const els = {
 };
 const isPublishMode = new URLSearchParams(window.location.search).has("publish") || window.location.hash.includes("publish");
 document.body.classList.toggle("publish-mode", isPublishMode);
+const APP_VERSION = "20260708i";
+const assetVersion = new URLSearchParams(window.location.search).get("v") || APP_VERSION;
 let autoTimer = null;
+function assetUrl(src){
+  const value = String(src || "").trim();
+  if(!value || value.startsWith("data:") || value.startsWith("blob:")) return value;
+  const joiner = value.includes("?") ? "&" : "?";
+  return value + joiner + "v=" + encodeURIComponent(assetVersion);
+}
 function mergeScenarioDraft(base, draft){
   return {
     ...base,
@@ -538,7 +546,7 @@ function renderStoryStructureTools(){
 }
 function render(){ const node = currentNode(); if(!node) return; if(node.bg) state.background = node.bg; if(node.quest) state.quest = node.quest; if(typeof node.progress === "number") state.progress = node.progress; if(node.characters) state.characters = structuredClone(node.characters); renderBackground(); renderTitleScreen(); renderCharacters(); renderDialogue(node); if(!state.title) applyEffects(node); renderHud(); renderPanel(); if(!isPublishMode) renderEditor(); scheduleAuto(); }
 function renderBackground(){
-  const bg = scenario.assets.backgrounds[state.background] || "";
+  const bg = assetUrl(scenario.assets.backgrounds[state.background] || "");
   if(els.backdropFill && els.backdropFill.getAttribute("src") !== bg) els.backdropFill.src = bg;
   if(els.backdrop.getAttribute("src") !== bg){
     els.backdrop.classList.remove("loaded");
@@ -548,10 +556,11 @@ function renderBackground(){
 function renderTitleScreen(){
   document.body.classList.toggle("title-active", !!state.title);
   if(els.titleScreen) els.titleScreen.hidden = !state.title;
-  if(els.titleArt && scenario.titleImage && els.titleArt.getAttribute("src") !== scenario.titleImage) els.titleArt.src = scenario.titleImage;
+  const titleSrc = assetUrl(scenario.titleImage || "");
+  if(els.titleArt && titleSrc && els.titleArt.getAttribute("src") !== titleSrc) els.titleArt.src = titleSrc;
 }
 function startGame(){ state.title = false; closePanel(); render(); }
-function renderCharacters(){ clear(els.characters); const activeId = speakerCharacterId(currentNode()?.speaker); const hasFocus = state.characters.length > 1 && state.characters.some(function(item){ return item.id === activeId; }); state.characters.forEach(function(item){ const src = scenario.assets.characters[item.id]; if(!src) return; const img = make("img", "character " + (item.position || "center")); if(hasFocus) img.classList.add(item.id === activeId ? "is-speaking" : "is-dimmed"); img.src = src; img.alt = scenario.characters[item.id]?.name || item.id; els.characters.appendChild(img); }); }
+function renderCharacters(){ clear(els.characters); const activeId = speakerCharacterId(currentNode()?.speaker); const hasFocus = state.characters.length > 1 && state.characters.some(function(item){ return item.id === activeId; }); state.characters.forEach(function(item){ const src = assetUrl(scenario.assets.characters[item.id]); if(!src) return; const img = make("img", "character " + (item.position || "center")); if(hasFocus) img.classList.add(item.id === activeId ? "is-speaking" : "is-dimmed"); img.src = src; img.alt = scenario.characters[item.id]?.name || item.id; els.characters.appendChild(img); }); }
 function dialogueLineCapacity(){
   const lineEl = els?.line;
   const width = Math.max(180, lineEl?.clientWidth || document.querySelector(".dialogue")?.clientWidth || 360);
@@ -1094,7 +1103,7 @@ function renderAssetEditor(){
   els.editorBody.appendChild(addBox);
 
   const prev = make("div", "asset-preview");
-  const img = document.createElement("img"); img.src = scenario.assets.backgrounds[state.background] || ""; prev.appendChild(img);
+  const img = document.createElement("img"); img.src = assetUrl(scenario.assets.backgrounds[state.background] || ""); prev.appendChild(img);
   els.editorBody.appendChild(prev);
   els.editorBody.appendChild(make("p", "muted", "이미지는 ./assets/파일명.png 또는 웹 주소로 바꿀 수 있습니다."));
 }
