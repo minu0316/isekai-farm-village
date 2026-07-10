@@ -16,7 +16,7 @@ const els = {
 };
 const isPublishMode = new URLSearchParams(window.location.search).has("publish") || window.location.hash.includes("publish");
 document.body.classList.toggle("publish-mode", isPublishMode);
-const APP_VERSION = "20260708i";
+const APP_VERSION = "20260710a";
 const assetVersion = new URLSearchParams(window.location.search).get("v") || APP_VERSION;
 let autoTimer = null;
 function assetUrl(src){
@@ -984,6 +984,11 @@ function renderBranchEditor(){
           } else delete n.choices[index].hideIfFlag;
         });
       }));
+      const choiceSceneRow = make("div", "button-row");
+      choiceSceneRow.appendChild(button(choice.next ? "이 선택지 앞에 장면 삽입" : "이 선택지에 새 장면 연결", function(){
+        insertChoiceNode(index);
+      }));
+      box.appendChild(choiceSceneRow);
     } else {
       box.appendChild(make("p", "muted", choice.reset ? "선택하면 게임을 처음부터 다시 시작합니다." : "선택하면 대화 로그 패널을 엽니다."));
     }
@@ -1149,6 +1154,80 @@ function exportScenarioJs(){
   downloadText("scenario.js", scenarioJsText(), "text/javascript;charset=utf-8");
   showToast("GitHub용 scenario.js를 다운로드했습니다.");
 }
+async function fetchFreshText(path){
+  const res = await fetch(path + (path.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(APP_VERSION), { cache: "reload" });
+  if(!res.ok) throw new Error(path + " 파일을 읽지 못했습니다.");
+  return res.text();
+}
+async function writeTextHandle(dirHandle, filename, text){
+  const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+async function writeBlobHandle(dirHandle, filename, blob){
+  const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+function bundleAssetSources(){
+  const sources = new Set();
+  if(scenario.titleImage) sources.add(scenario.titleImage);
+  Object.values(scenario.assets?.backgrounds || {}).forEach(function(src){ if(src) sources.add(src); });
+  Object.values(scenario.assets?.characters || {}).forEach(function(src){ if(src) sources.add(src); });
+  return Array.from(sources);
+}
+function localAssetFilename(src){
+  try {
+    const url = new URL(src, window.location.href);
+    const parts = url.pathname.split("/");
+    const assetsIndex = parts.lastIndexOf("assets");
+    if(assetsIndex < 0) return "";
+    return decodeURIComponent(parts[parts.length - 1] || "");
+  } catch {
+    return "";
+  }
+}
+async function writeBundleAssets(rootHandle){
+  const assetsHandle = await rootHandle.getDirectoryHandle("assets", { create: true });
+  const missing = [];
+  let count = 0;
+  for(const src of bundleAssetSources()){
+    const filename = localAssetFilename(src);
+    if(!filename) continue;
+    try {
+      const res = await fetch(assetUrl(src), { cache: "reload" });
+      if(!res.ok) throw new Error("missing");
+      await writeBlobHandle(assetsHandle, filename, await res.blob());
+      count++;
+    } catch {
+      missing.push(filename);
+    }
+  }
+  return { count: count, missing: missing };
+}
+async function updateGithubUploadFolder(){
+  if(!window.showDirectoryPicker){
+    exportScenarioJs();
+    showToast("이 브라우저에서는 폴더 직접 갱신이 안 되어 scenario.js만 다운로드했습니다.");
+    return;
+  }
+  try {
+    const rootHandle = await window.showDirectoryPicker({ id: "isekai-farm-github-pages-upload", mode: "readwrite" });
+    const dataHandle = await rootHandle.getDirectoryHandle("data", { create: true });
+    await writeTextHandle(rootHandle, "index.html", await fetchFreshText("./index.html"));
+    await writeTextHandle(rootHandle, "app.js", await fetchFreshText("./app.js"));
+    await writeTextHandle(rootHandle, "styles.css", await fetchFreshText("./styles.css"));
+    await writeTextHandle(dataHandle, "scenario.js", scenarioJsText());
+    const assetResult = await writeBundleAssets(rootHandle);
+    const suffix = assetResult.missing.length ? " 이미지 " + assetResult.missing.length + "개는 확인이 필요합니다." : " 이미지 " + assetResult.count + "개 포함.";
+    showToast("GitHub 업로드 폴더를 갱신했습니다. " + suffix);
+  } catch (error) {
+    if(error && error.name === "AbortError") return;
+    showToast("폴더 갱신 중 문제가 생겼습니다. 다운로드 방식으로 진행해 주세요.");
+  }
+}
 function renderExportEditor(){
   els.editorBody.appendChild(make("div", "section-title", "엑셀 시나리오 입력양식"));
   const excelRow = make("div", "button-row");
@@ -1180,11 +1259,12 @@ function renderExportEditor(){
   els.editorBody.appendChild(row);
 
   const publishRow = make("div", "button-row");
+  publishRow.appendChild(button("GitHub 업로드 폴더 갱신", updateGithubUploadFolder));
   publishRow.appendChild(button("공유 링크 복사", copyPublishedLink));
   publishRow.appendChild(button("GitHub용 scenario.js 다운로드", exportScenarioJs));
   els.editorBody.appendChild(publishRow);
 
-  els.editorBody.appendChild(make("p", "muted", "변경 사항은 브라우저에 자동 저장됩니다. 짧은 GitHub 주소에 반영하려면 scenario.js를 내려받아 github-pages-upload/data/scenario.js로 교체한 뒤 업로드하세요."));
+  els.editorBody.appendChild(make("p", "muted", "GitHub 업로드 폴더 갱신을 누른 뒤 C:\\Users\\Minu\\Documents\\RedBound\\github-pages-upload 폴더를 선택하면 최신 시나리오, 앱 파일, 사용 중인 이미지가 한 번에 반영됩니다."));
 }
 
 const SCENARIO_COLUMNS = ["장면ID", "메모", "화자", "대사", "배경", "다음장면", "퀘스트", "진행단계", "등장캐릭터", "선택지", "분기완료", "효과"];
@@ -1455,6 +1535,24 @@ function addNode(){
   saveDraft();
   setCurrentNode(newId);
   showToast(previousId + " -> " + newId + (oldNext ? " -> " + oldNext : "") + " 흐름으로 연결했습니다.");
+}
+function insertChoiceNode(choiceIndex){
+  const node = currentNode();
+  if(!node || !node.choices || !node.choices[choiceIndex]) return;
+  const choice = node.choices[choiceIndex];
+  if(choice.reset || choice.action === "openLog"){
+    showToast("특수 동작 선택지는 장면을 연결하지 않습니다.");
+    return;
+  }
+  const oldNext = choice.next || "";
+  const newId = nextSequentialSceneId();
+  scenario.nodes[newId] = makeContinuationNode(node, oldNext);
+  choice.next = newId;
+  if(node.autoNextWhenChoicesDone) ensureChoiceCompletion(scenario, choice);
+  saveDraft();
+  state.editorTab = "scene";
+  setCurrentNode(newId);
+  showToast((choice.text || "선택지") + " -> " + newId + (oldNext ? " -> " + oldNext : "") + " 흐름으로 연결했습니다.");
 }
 function addBranchNode(){
   const node = currentNode();
