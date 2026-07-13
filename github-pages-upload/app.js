@@ -12,12 +12,12 @@ const state = { nodeId: scenario.start, background: "field", quest: "intro", pro
 const els = {
   backdrop: document.getElementById("backdrop"), backdropFill: document.getElementById("backdropFill"), characters: document.getElementById("characterLayer"), questTitle: document.getElementById("questTitle"), questProgress: document.getElementById("questProgress"), affection: document.getElementById("affectionPanel"),
   speaker: document.getElementById("speaker"), line: document.getElementById("line"), choices: document.getElementById("choices"), next: document.getElementById("nextButton"), auto: document.getElementById("autoButton"), log: document.getElementById("logButton"), reset: document.getElementById("resetButton"),
-  panel: document.getElementById("logPanel"), closeLog: document.getElementById("closeLogButton"), panelContent: document.getElementById("panelContent"), editorBody: document.getElementById("editorBody"), playCurrent: document.getElementById("playCurrentButton"), saveFile: document.getElementById("saveFileButton"), headerSaveStatus: document.getElementById("headerSaveStatus"),
+  panel: document.getElementById("logPanel"), closeLog: document.getElementById("closeLogButton"), panelContent: document.getElementById("panelContent"), editorBody: document.getElementById("editorBody"), playCurrent: document.getElementById("playCurrentButton"),
   titleScreen: document.getElementById("titleScreen"), titleArt: document.getElementById("titleArt"), start: document.getElementById("startButton"), dialogue: document.querySelector(".dialogue")
 };
 const isPublishMode = new URLSearchParams(window.location.search).has("publish") || window.location.hash.includes("publish");
 document.body.classList.toggle("publish-mode", isPublishMode);
-const APP_VERSION = "20260713g";
+const APP_VERSION = "20260713f";
 const assetVersion = new URLSearchParams(window.location.search).get("v") || APP_VERSION;
 let autoTimer = null;
 function assetUrl(src){
@@ -361,23 +361,10 @@ function defaultFileSaveMessage(){
   if(!canSaveScenarioFile()) return "GitHub 공개 화면에서는 파일 저장을 하지 않습니다.";
   return "저장하면 RedBound\\data\\scenario.js에 바로 반영됩니다.";
 }
-function syncHeaderFileSaveStatus(){
-  if(!els.headerSaveStatus) return;
-  const status = state.fileSaveStatus || "idle";
-  els.headerSaveStatus.className = "header-save-status " + status;
-  els.headerSaveStatus.textContent = fileSaveTitle(status);
-  if(els.saveFile){
-    els.saveFile.disabled = status === "pending" || isPublishMode;
-    els.saveFile.title = canSaveScenarioFile()
-      ? "현재 에디터 내용을 data/scenario.js 파일에 바로 저장"
-      : "파일 저장은 127.0.0.1:4185 로 연 에디터에서만 가능합니다.";
-  }
-}
 function syncFileSaveStatusView(){
   const box = document.getElementById("fileSaveStatus");
-  const status = state.fileSaveStatus || "idle";
-  syncHeaderFileSaveStatus();
   if(!box) return;
+  const status = state.fileSaveStatus || "idle";
   const title = box.querySelector("strong");
   const message = box.querySelector("span");
   box.className = "file-save-status " + status;
@@ -413,17 +400,6 @@ async function saveScenarioFileToDisk(){
     const detail = error && error.message ? " (" + error.message + ")" : "";
     setFileSaveState("local-only", "현재 서버가 파일 저장을 받지 못했습니다. server.js로 연 4185 주소에서 저장해야 파일에 반영됩니다." + detail);
   }
-}
-async function saveScenarioNow(){
-  window.clearTimeout(scenarioFileSaveTimer);
-  scenarioFileSaveTimer = null;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario));
-  if(!canSaveScenarioFile()){
-    setFileSaveState("local-only", "브라우저에는 저장됐지만 파일에는 쓰지 못했습니다. 127.0.0.1:4185 에디터에서 저장해 주세요.");
-    showToast("브라우저 저장만 됨", 2200);
-    return;
-  }
-  await saveScenarioFileToDisk();
 }
 function saveDraft(markUploadDirty){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario));
@@ -1887,7 +1863,6 @@ els.log.addEventListener("click", function(){ togglePanel("log"); });
 els.reset.addEventListener("click", resetGame);
 els.closeLog.addEventListener("click", function(event){ event.preventDefault(); event.stopPropagation(); closePanel(); });
 els.playCurrent.addEventListener("click", playCurrent);
-if(els.saveFile) els.saveFile.addEventListener("click", saveScenarioNow);
 document.querySelectorAll(".tabs button").forEach(function(button){ button.addEventListener("click", function(){ state.tab = button.dataset.tab; renderPanel(); }); });
 document.addEventListener("click", function(event){ const closeButton = event.target.closest("#closeLogButton"); if(closeButton){ event.preventDefault(); event.stopPropagation(); closePanel(); return; } if(els.panel.classList.contains("open") && !event.target.closest("#logPanel") && !event.target.closest("#logButton")){ closePanel(); } }, true);
 document.querySelectorAll(".editor-tabs button").forEach(function(button){ button.onclick = function(){ switchEditorTab(button.dataset.editorTab); }; });
