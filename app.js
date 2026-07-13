@@ -2,12 +2,14 @@ const STORAGE_KEY = "farmVillageScenarioDraftV4";
 const PLAYER_NAME_KEY = "farmVillagePlayerName";
 const TERRITORY_NAME_KEY = "farmVillageTerritoryName";
 const REVIEW_CHECKPOINT_KEY = "farmVillageReviewCheckpointV1";
+const UPLOAD_DIRTY_KEY = "farmVillageGithubUploadDirtyV1";
+const UPLOAD_SIGNATURE_KEY = "farmVillageGithubUploadSignatureV1";
 const originalScenario = window.FARM_VILLAGE_SCENARIO;
 const publishedScenario = loadPublishedScenario();
 const draftScenario = publishedScenario || loadDraft();
 const scenario = repairScenarioLinks(migrateAllClearBranches(migrateDiningRoute(normalizeScenarioNames(migrateAssetPaths(draftScenario ? mergeScenarioDraft(structuredClone(originalScenario), draftScenario) : structuredClone(originalScenario))))));
-if(draftScenario && !publishedScenario) saveDraft();
-const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null };
+if(draftScenario && !publishedScenario) saveDraft(false);
+const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null, uploadDirty: loadUploadDirty(), uploadSyncBusy: false, uploadSyncMessage: "" };
 const els = {
   backdrop: document.getElementById("backdrop"), backdropFill: document.getElementById("backdropFill"), characters: document.getElementById("characterLayer"), questTitle: document.getElementById("questTitle"), questProgress: document.getElementById("questProgress"), affection: document.getElementById("affectionPanel"),
   speaker: document.getElementById("speaker"), line: document.getElementById("line"), choices: document.getElementById("choices"), next: document.getElementById("nextButton"), auto: document.getElementById("autoButton"), log: document.getElementById("logButton"), reset: document.getElementById("resetButton"),
@@ -16,7 +18,7 @@ const els = {
 };
 const isPublishMode = new URLSearchParams(window.location.search).has("publish") || window.location.hash.includes("publish");
 document.body.classList.toggle("publish-mode", isPublishMode);
-const APP_VERSION = "20260710a";
+const APP_VERSION = "20260713d";
 const assetVersion = new URLSearchParams(window.location.search).get("v") || APP_VERSION;
 let autoTimer = null;
 function assetUrl(src){
@@ -318,7 +320,37 @@ function repairScenarioLinks(target){
   return target;
 }
 function loadDraft(){ try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } }
-function saveDraft(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario)); }
+function loadUploadDirty(){
+  try {
+    if(localStorage.getItem(UPLOAD_DIRTY_KEY) === "1") return true;
+    const lastSignature = localStorage.getItem(UPLOAD_SIGNATURE_KEY);
+    if(!lastSignature) return Boolean(draftScenario && !publishedScenario);
+    return lastSignature !== currentUploadSignature();
+  } catch { return false; }
+}
+function currentUploadSignature(){ return JSON.stringify(reindexScenarioCopy(scenario).scenario); }
+function setUploadDirty(value){
+  state.uploadDirty = Boolean(value);
+  try {
+    if(state.uploadDirty){
+      localStorage.setItem(UPLOAD_DIRTY_KEY, "1");
+    } else {
+      localStorage.removeItem(UPLOAD_DIRTY_KEY);
+      localStorage.setItem(UPLOAD_SIGNATURE_KEY, currentUploadSignature());
+    }
+  } catch {}
+}
+function setUploadSyncState(options){
+  options = options || {};
+  if(typeof options.dirty === "boolean") setUploadDirty(options.dirty);
+  if(typeof options.busy === "boolean") state.uploadSyncBusy = options.busy;
+  if("message" in options) state.uploadSyncMessage = options.message || "";
+  renderEditor();
+}
+function saveDraft(markUploadDirty){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario));
+  if(markUploadDirty !== false) setUploadDirty(true);
+}
 function currentNode(){ return scenario.nodes[state.nodeId]; }
 function nodeIds(){ return Object.keys(scenario.nodes); }
 function nodeLabel(id){
@@ -794,7 +826,32 @@ function switchEditorTab(tabName){
   state.editorTab = tabName;
   renderEditor();
 }
-function renderEditor(){ document.querySelectorAll(".editor-tabs button").forEach(function(b){ b.classList.toggle("active", b.dataset.editorTab === state.editorTab); }); clear(els.editorBody); if(state.editorTab === "scene") renderSceneEditor(); if(state.editorTab === "branch") renderBranchEditor(); if(state.editorTab === "stats") renderStatsEditor(); if(state.editorTab === "assets") renderAssetEditor(); if(state.editorTab === "export") renderExportEditor(); }
+function renderUploadSyncStatus(){
+  const className = "upload-sync " + (state.uploadSyncBusy ? "busy" : (state.uploadDirty ? "dirty" : "synced"));
+  const text = make("div", "");
+  const title = state.uploadSyncBusy ? "업로드 폴더 갱신 중..." : (state.uploadDirty ? "업로드 폴더 갱신 필요" : "업로드 폴더 최신");
+  const message = state.uploadSyncMessage || (state.uploadSyncBusy ? "파일을 쓰는 중입니다. 잠시만 기다려 주세요." : (state.uploadDirty ? "GitHub에 올리기 전에 한 번 갱신해 주세요." : "마지막 갱신 이후 추가 수정이 없습니다."));
+  const box = make("div", className);
+  text.appendChild(make("strong", "", title));
+  text.appendChild(make("span", "", message));
+  box.appendChild(text);
+  if(state.uploadDirty || state.uploadSyncBusy){
+    const syncButton = button(state.uploadSyncBusy ? "진행 중" : "갱신", updateGithubUploadFolder);
+    syncButton.disabled = state.uploadSyncBusy;
+    box.appendChild(syncButton);
+  }
+  els.editorBody.appendChild(box);
+}
+function renderEditor(){
+  document.querySelectorAll(".editor-tabs button").forEach(function(b){ b.classList.toggle("active", b.dataset.editorTab === state.editorTab); });
+  clear(els.editorBody);
+  renderUploadSyncStatus();
+  if(state.editorTab === "scene") renderSceneEditor();
+  if(state.editorTab === "branch") renderBranchEditor();
+  if(state.editorTab === "stats") renderStatsEditor();
+  if(state.editorTab === "assets") renderAssetEditor();
+  if(state.editorTab === "export") renderExportEditor();
+}
 function loadReviewCheckpointData(){
   try {
     const raw = localStorage.getItem(REVIEW_CHECKPOINT_KEY);
@@ -1193,10 +1250,14 @@ async function writeBundleAssets(rootHandle){
   const assetsHandle = await rootHandle.getDirectoryHandle("assets", { create: true });
   const missing = [];
   let count = 0;
-  for(const src of bundleAssetSources()){
+  const sources = bundleAssetSources();
+  for(let index = 0; index < sources.length; index++){
+    const src = sources[index];
     const filename = localAssetFilename(src);
     if(!filename) continue;
     try {
+      state.uploadSyncMessage = "이미지 복사 중: " + filename + " (" + String(index + 1) + "/" + String(sources.length) + ")";
+      renderEditor();
       const res = await fetch(assetUrl(src), { cache: "reload" });
       if(!res.ok) throw new Error("missing");
       await writeBlobHandle(assetsHandle, filename, await res.blob());
@@ -1210,22 +1271,173 @@ async function writeBundleAssets(rootHandle){
 async function updateGithubUploadFolder(){
   if(!window.showDirectoryPicker){
     exportScenarioJs();
+    state.uploadSyncMessage = "이 브라우저에서는 폴더 직접 갱신이 안 되어 scenario.js만 다운로드했습니다.";
+    renderEditor();
     showToast("이 브라우저에서는 폴더 직접 갱신이 안 되어 scenario.js만 다운로드했습니다.");
     return;
   }
   try {
     const rootHandle = await window.showDirectoryPicker({ id: "isekai-farm-github-pages-upload", mode: "readwrite" });
+    setUploadSyncState({ busy: true, message: "기본 파일을 갱신하는 중입니다." });
     const dataHandle = await rootHandle.getDirectoryHandle("data", { create: true });
+    state.uploadSyncMessage = "index.html을 갱신하는 중입니다.";
+    renderEditor();
     await writeTextHandle(rootHandle, "index.html", await fetchFreshText("./index.html"));
+    state.uploadSyncMessage = "app.js를 갱신하는 중입니다.";
+    renderEditor();
     await writeTextHandle(rootHandle, "app.js", await fetchFreshText("./app.js"));
+    state.uploadSyncMessage = "styles.css를 갱신하는 중입니다.";
+    renderEditor();
     await writeTextHandle(rootHandle, "styles.css", await fetchFreshText("./styles.css"));
+    state.uploadSyncMessage = "scenario.js를 갱신하는 중입니다.";
+    renderEditor();
     await writeTextHandle(dataHandle, "scenario.js", scenarioJsText());
     const assetResult = await writeBundleAssets(rootHandle);
     const suffix = assetResult.missing.length ? " 이미지 " + assetResult.missing.length + "개는 확인이 필요합니다." : " 이미지 " + assetResult.count + "개 포함.";
-    showToast("GitHub 업로드 폴더를 갱신했습니다. " + suffix);
+    setUploadSyncState({ dirty: false, busy: false, message: "갱신 완료. GitHub 업로드 폴더를 최신으로 맞췄습니다. " + suffix });
+    showToast("갱신 완료. GitHub 업로드 폴더를 최신으로 맞췄습니다. " + suffix, 3800);
   } catch (error) {
-    if(error && error.name === "AbortError") return;
-    showToast("폴더 갱신 중 문제가 생겼습니다. 다운로드 방식으로 진행해 주세요.");
+    if(error && error.name === "AbortError"){
+      setUploadSyncState({ busy: false, dirty: true, message: "폴더 선택이 완료되지 않았습니다. 상위 RedBound 폴더에서 github-pages-upload를 한 번 선택한 뒤 '폴더 선택'을 눌러 주세요." });
+      return;
+    }
+    const detail = error && error.message ? " (" + error.message + ")" : "";
+    setUploadSyncState({ busy: false, dirty: true, message: "갱신 실패. 폴더 선택이나 권한을 다시 확인해 주세요." + detail });
+    showToast("갱신 실패. 폴더 선택이나 권한을 다시 확인해 주세요.", 4200);
+  }
+}
+function crc32(bytes){
+  if(!crc32.table){
+    crc32.table = Array.from({ length: 256 }, function(_, n){
+      let c = n;
+      for(let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+      return c >>> 0;
+    });
+  }
+  let crc = 0xffffffff;
+  for(let i = 0; i < bytes.length; i++) crc = crc32.table[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function push16(out, value){ out.push(value & 255, (value >>> 8) & 255); }
+function push32(out, value){ out.push(value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255); }
+function concatBytes(parts){
+  const size = parts.reduce(function(total, part){ return total + part.length; }, 0);
+  const result = new Uint8Array(size);
+  let offset = 0;
+  parts.forEach(function(part){ result.set(part, offset); offset += part.length; });
+  return result;
+}
+function zipTimestamp(){
+  const now = new Date();
+  return {
+    time: (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2),
+    date: ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()
+  };
+}
+function makeZipBlob(files){
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const stamp = zipTimestamp();
+  files.forEach(function(file){
+    const nameBytes = encoder.encode(file.path.replace(/\\/g, "/"));
+    const data = file.data instanceof Uint8Array ? file.data : new Uint8Array(file.data);
+    const checksum = crc32(data);
+    const local = [];
+    push32(local, 0x04034b50);
+    push16(local, 20);
+    push16(local, 0x0800);
+    push16(local, 0);
+    push16(local, stamp.time);
+    push16(local, stamp.date);
+    push32(local, checksum);
+    push32(local, data.length);
+    push32(local, data.length);
+    push16(local, nameBytes.length);
+    push16(local, 0);
+    const localBytes = concatBytes([new Uint8Array(local), nameBytes, data]);
+    chunks.push(localBytes);
+
+    const header = [];
+    push32(header, 0x02014b50);
+    push16(header, 20);
+    push16(header, 20);
+    push16(header, 0x0800);
+    push16(header, 0);
+    push16(header, stamp.time);
+    push16(header, stamp.date);
+    push32(header, checksum);
+    push32(header, data.length);
+    push32(header, data.length);
+    push16(header, nameBytes.length);
+    push16(header, 0);
+    push16(header, 0);
+    push16(header, 0);
+    push16(header, 0);
+    push32(header, 0);
+    push32(header, offset);
+    central.push(concatBytes([new Uint8Array(header), nameBytes]));
+    offset += localBytes.length;
+  });
+  const centralStart = offset;
+  central.forEach(function(part){ chunks.push(part); offset += part.length; });
+  const end = [];
+  push32(end, 0x06054b50);
+  push16(end, 0);
+  push16(end, 0);
+  push16(end, files.length);
+  push16(end, files.length);
+  push32(end, offset - centralStart);
+  push32(end, centralStart);
+  push16(end, 0);
+  chunks.push(new Uint8Array(end));
+  return new Blob(chunks, { type: "application/zip" });
+}
+function downloadBlob(filename, blob){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 500);
+}
+async function downloadGithubUploadZip(){
+  try {
+    setUploadSyncState({ busy: true, message: "GitHub 업로드 ZIP을 만드는 중입니다." });
+    const encoder = new TextEncoder();
+    const files = [
+      { path: "index.html", data: encoder.encode(await fetchFreshText("./index.html")) },
+      { path: "app.js", data: encoder.encode(await fetchFreshText("./app.js")) },
+      { path: "styles.css", data: encoder.encode(await fetchFreshText("./styles.css")) },
+      { path: "data/scenario.js", data: encoder.encode(scenarioJsText()) }
+    ];
+    const missing = [];
+    const sources = bundleAssetSources();
+    for(let index = 0; index < sources.length; index++){
+      const src = sources[index];
+      const filename = localAssetFilename(src);
+      if(!filename) continue;
+      try {
+        state.uploadSyncMessage = "ZIP에 이미지 담는 중: " + filename + " (" + String(index + 1) + "/" + String(sources.length) + ")";
+        renderEditor();
+        const res = await fetch(assetUrl(src), { cache: "reload" });
+        if(!res.ok) throw new Error("missing");
+        files.push({ path: "assets/" + filename, data: new Uint8Array(await res.arrayBuffer()) });
+      } catch {
+        missing.push(filename);
+      }
+    }
+    downloadBlob("github-pages-upload.zip", makeZipBlob(files));
+    const suffix = missing.length ? " 이미지 " + missing.length + "개는 확인이 필요합니다." : " 이미지 " + String(files.length - 4) + "개 포함.";
+    setUploadSyncState({ busy: false, dirty: true, message: "ZIP 다운로드 완료. 압축을 풀어 GitHub에 올려 주세요. " + suffix });
+    showToast("ZIP 다운로드 완료. 압축을 풀어 GitHub에 올려 주세요.", 4200);
+  } catch (error) {
+    const detail = error && error.message ? " (" + error.message + ")" : "";
+    setUploadSyncState({ busy: false, dirty: true, message: "ZIP 다운로드 실패. 다시 시도해 주세요." + detail });
+    showToast("ZIP 다운로드 실패. 다시 시도해 주세요.", 4200);
   }
 }
 function renderExportEditor(){
@@ -1260,11 +1472,12 @@ function renderExportEditor(){
 
   const publishRow = make("div", "button-row");
   publishRow.appendChild(button("GitHub 업로드 폴더 갱신", updateGithubUploadFolder));
+  publishRow.appendChild(button("업로드 ZIP 다운로드", downloadGithubUploadZip));
   publishRow.appendChild(button("공유 링크 복사", copyPublishedLink));
   publishRow.appendChild(button("GitHub용 scenario.js 다운로드", exportScenarioJs));
   els.editorBody.appendChild(publishRow);
 
-  els.editorBody.appendChild(make("p", "muted", "GitHub 업로드 폴더 갱신을 누른 뒤 C:\\Users\\Minu\\Documents\\RedBound\\github-pages-upload 폴더를 선택하면 최신 시나리오, 앱 파일, 사용 중인 이미지가 한 번에 반영됩니다."));
+  els.editorBody.appendChild(make("p", "muted", "GitHub 업로드 폴더 갱신이 계속 실패하면 업로드 ZIP 다운로드를 사용하세요. ZIP 안에는 최신 시나리오, 앱 파일, 사용 중인 이미지가 한 번에 들어갑니다."));
 }
 
 const SCENARIO_COLUMNS = ["장면ID", "메모", "화자", "대사", "배경", "다음장면", "퀘스트", "진행단계", "등장캐릭터", "선택지", "분기완료", "효과"];
@@ -1588,7 +1801,7 @@ function removeNode(){
 }
 function scheduleAuto(){ clearAuto(); const node = currentNode(); if(state.title || !state.auto || (visibleChoices(node).length && isLastDialoguePage(node))) return; autoTimer = window.setTimeout(next, 2200); }
 function clearAuto(){ if(autoTimer) window.clearTimeout(autoTimer); autoTimer = null; }
-function showToast(message){ const toast = make("div", "toast", message); document.body.appendChild(toast); requestAnimationFrame(function(){ toast.classList.add("show"); }); window.setTimeout(function(){ toast.classList.remove("show"); window.setTimeout(function(){ toast.remove(); }, 220); }, 1500); }
+function showToast(message, duration){ const toast = make("div", "toast", message); document.body.appendChild(toast); requestAnimationFrame(function(){ toast.classList.add("show"); }); window.setTimeout(function(){ toast.classList.remove("show"); window.setTimeout(function(){ toast.remove(); }, 220); }, duration || 1500); }
 els.backdrop.addEventListener("load", function(){ els.backdrop.classList.add("loaded"); });
 els.next.addEventListener("click", next);
 if(els.start) els.start.addEventListener("click", startGame);
