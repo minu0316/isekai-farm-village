@@ -74,11 +74,6 @@ function writeScenarioFiles(scenario){
   const mainPath = path.join(ROOT, "data", "scenario.js");
   writeTextAtomic(mainPath, text);
 
-  const uploadDataDir = path.join(ROOT, "github-pages-upload", "data");
-  if(fs.existsSync(uploadDataDir)){
-    writeTextAtomic(path.join(uploadDataDir, "scenario.js"), text);
-  }
-
   return mainPath;
 }
 

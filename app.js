@@ -2,13 +2,11 @@ const STORAGE_KEY = "farmVillageScenarioDraftV4";
 const PLAYER_NAME_KEY = "farmVillagePlayerName";
 const TERRITORY_NAME_KEY = "farmVillageTerritoryName";
 const REVIEW_CHECKPOINT_KEY = "farmVillageReviewCheckpointV1";
-const UPLOAD_DIRTY_KEY = "farmVillageGithubUploadDirtyV1";
-const UPLOAD_SIGNATURE_KEY = "farmVillageGithubUploadSignatureV1";
 const originalScenario = window.FARM_VILLAGE_SCENARIO;
 const publishedScenario = loadPublishedScenario();
 const draftScenario = publishedScenario || loadDraft();
 const scenario = repairScenarioLinks(migrateAllClearBranches(migrateDiningRoute(normalizeScenarioNames(migrateAssetPaths(draftScenario ? mergeScenarioDraft(structuredClone(originalScenario), draftScenario) : structuredClone(originalScenario))))));
-const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, titleStageMenu: false, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null, uploadDirty: loadUploadDirty(), uploadSyncBusy: false, uploadSyncMessage: "", fileSaveStatus: "idle", fileSaveMessage: "" };
+const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, titleStageMenu: false, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null, fileSaveStatus: "idle", fileSaveMessage: "" };
 const els = {
   backdrop: document.getElementById("backdrop"), backdropFill: document.getElementById("backdropFill"), characters: document.getElementById("characterLayer"), questTitle: document.getElementById("questTitle"), questProgress: document.getElementById("questProgress"), affection: document.getElementById("affectionPanel"),
   speaker: document.getElementById("speaker"), line: document.getElementById("line"), choices: document.getElementById("choices"), next: document.getElementById("nextButton"), auto: document.getElementById("autoButton"), log: document.getElementById("logButton"), reset: document.getElementById("resetButton"),
@@ -333,33 +331,6 @@ function repairScenarioLinks(target){
   return target;
 }
 function loadDraft(){ try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; } }
-function loadUploadDirty(){
-  try {
-    if(localStorage.getItem(UPLOAD_DIRTY_KEY) === "1") return true;
-    const lastSignature = localStorage.getItem(UPLOAD_SIGNATURE_KEY);
-    if(!lastSignature) return Boolean(draftScenario && !publishedScenario);
-    return lastSignature !== currentUploadSignature();
-  } catch { return false; }
-}
-function currentUploadSignature(){ return JSON.stringify(reindexScenarioCopy(scenario).scenario); }
-function setUploadDirty(value){
-  state.uploadDirty = Boolean(value);
-  try {
-    if(state.uploadDirty){
-      localStorage.setItem(UPLOAD_DIRTY_KEY, "1");
-    } else {
-      localStorage.removeItem(UPLOAD_DIRTY_KEY);
-      localStorage.setItem(UPLOAD_SIGNATURE_KEY, currentUploadSignature());
-    }
-  } catch {}
-}
-function setUploadSyncState(options){
-  options = options || {};
-  if(typeof options.dirty === "boolean") setUploadDirty(options.dirty);
-  if(typeof options.busy === "boolean") state.uploadSyncBusy = options.busy;
-  if("message" in options) state.uploadSyncMessage = options.message || "";
-  renderEditor();
-}
 let scenarioFileSaveTimer = null;
 function canSaveScenarioFile(){
   return !isPublishMode && (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost");
@@ -420,7 +391,6 @@ async function saveScenarioFileToDisk(){
     });
     const payload = await res.json().catch(function(){ return {}; });
     if(!res.ok || !payload.ok) throw new Error(payload.error || res.statusText || "save failed");
-    setUploadDirty(false);
     setFileSaveState("saved", "파일에 저장됐습니다. 이제 RedBound 폴더를 GitHub에 올리면 이 내용이 반영됩니다.");
     showToast("파일 저장 완료", 2200);
   } catch (error) {
@@ -439,9 +409,8 @@ async function saveScenarioNow(){
   }
   await saveScenarioFileToDisk();
 }
-function saveDraft(markUploadDirty){
+function saveDraft(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario));
-  if(markUploadDirty !== false) setUploadDirty(true);
   scheduleScenarioFileSave();
 }
 function currentNode(){ return scenario.nodes[state.nodeId]; }
