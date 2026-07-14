@@ -15,7 +15,7 @@ const els = {
 };
 const isPublishMode = new URLSearchParams(window.location.search).has("publish") || window.location.hash.includes("publish");
 document.body.classList.toggle("publish-mode", isPublishMode);
-const APP_VERSION = "20260713h";
+const APP_VERSION = "20260714a";
 const assetVersion = new URLSearchParams(window.location.search).get("v") || APP_VERSION;
 let autoTimer = null;
 function assetUrl(src){
@@ -930,22 +930,6 @@ function switchEditorTab(tabName){
   state.editorTab = tabName;
   renderEditor();
 }
-function renderUploadSyncStatus(){
-  const className = "upload-sync " + (state.uploadSyncBusy ? "busy" : (state.uploadDirty ? "dirty" : "synced"));
-  const text = make("div", "");
-  const title = state.uploadSyncBusy ? "업로드 폴더 갱신 중..." : (state.uploadDirty ? "업로드 폴더 갱신 필요" : "업로드 폴더 최신");
-  const message = state.uploadSyncMessage || (state.uploadSyncBusy ? "파일을 쓰는 중입니다. 잠시만 기다려 주세요." : (state.uploadDirty ? "GitHub에 올리기 전에 한 번 갱신해 주세요." : "마지막 갱신 이후 추가 수정이 없습니다."));
-  const box = make("div", className);
-  text.appendChild(make("strong", "", title));
-  text.appendChild(make("span", "", message));
-  box.appendChild(text);
-  if(state.uploadDirty || state.uploadSyncBusy){
-    const syncButton = button(state.uploadSyncBusy ? "진행 중" : "갱신", updateGithubUploadFolder);
-    syncButton.disabled = state.uploadSyncBusy;
-    box.appendChild(syncButton);
-  }
-  els.editorBody.appendChild(box);
-}
 function renderFileSaveStatus(){
   if(isPublishMode) return;
   const box = make("div", "file-save-status idle");
@@ -1414,239 +1398,6 @@ function appendPublishControls(){
 function scenarioJsText(){
   return "window.FARM_VILLAGE_SCENARIO = " + JSON.stringify(scenario, null, 2) + ";\n";
 }
-function exportScenarioJs(){
-  downloadText("scenario.js", scenarioJsText(), "text/javascript;charset=utf-8");
-  showToast("GitHub용 scenario.js를 다운로드했습니다.");
-}
-async function fetchFreshText(path){
-  const res = await fetch(path + (path.includes("?") ? "&" : "?") + "v=" + encodeURIComponent(APP_VERSION), { cache: "reload" });
-  if(!res.ok) throw new Error(path + " 파일을 읽지 못했습니다.");
-  return res.text();
-}
-async function writeTextHandle(dirHandle, filename, text){
-  const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-  const writable = await fileHandle.createWritable();
-  await writable.write(text);
-  await writable.close();
-}
-async function writeBlobHandle(dirHandle, filename, blob){
-  const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-  const writable = await fileHandle.createWritable();
-  await writable.write(blob);
-  await writable.close();
-}
-function bundleAssetSources(){
-  const sources = new Set();
-  if(scenario.titleImage) sources.add(scenario.titleImage);
-  Object.values(scenario.assets?.backgrounds || {}).forEach(function(src){ if(src) sources.add(src); });
-  Object.values(scenario.assets?.characters || {}).forEach(function(src){ if(src) sources.add(src); });
-  return Array.from(sources);
-}
-function localAssetFilename(src){
-  try {
-    const url = new URL(src, window.location.href);
-    const parts = url.pathname.split("/");
-    const assetsIndex = parts.lastIndexOf("assets");
-    if(assetsIndex < 0) return "";
-    return decodeURIComponent(parts[parts.length - 1] || "");
-  } catch {
-    return "";
-  }
-}
-async function writeBundleAssets(rootHandle){
-  const assetsHandle = await rootHandle.getDirectoryHandle("assets", { create: true });
-  const missing = [];
-  let count = 0;
-  const sources = bundleAssetSources();
-  for(let index = 0; index < sources.length; index++){
-    const src = sources[index];
-    const filename = localAssetFilename(src);
-    if(!filename) continue;
-    try {
-      state.uploadSyncMessage = "이미지 복사 중: " + filename + " (" + String(index + 1) + "/" + String(sources.length) + ")";
-      renderEditor();
-      const res = await fetch(assetUrl(src), { cache: "reload" });
-      if(!res.ok) throw new Error("missing");
-      await writeBlobHandle(assetsHandle, filename, await res.blob());
-      count++;
-    } catch {
-      missing.push(filename);
-    }
-  }
-  return { count: count, missing: missing };
-}
-async function updateGithubUploadFolder(){
-  if(!window.showDirectoryPicker){
-    exportScenarioJs();
-    state.uploadSyncMessage = "이 브라우저에서는 폴더 직접 갱신이 안 되어 scenario.js만 다운로드했습니다.";
-    renderEditor();
-    showToast("이 브라우저에서는 폴더 직접 갱신이 안 되어 scenario.js만 다운로드했습니다.");
-    return;
-  }
-  try {
-    const rootHandle = await window.showDirectoryPicker({ id: "isekai-farm-github-pages-upload", mode: "readwrite" });
-    setUploadSyncState({ busy: true, message: "기본 파일을 갱신하는 중입니다." });
-    const dataHandle = await rootHandle.getDirectoryHandle("data", { create: true });
-    state.uploadSyncMessage = "index.html을 갱신하는 중입니다.";
-    renderEditor();
-    await writeTextHandle(rootHandle, "index.html", await fetchFreshText("./index.html"));
-    state.uploadSyncMessage = "app.js를 갱신하는 중입니다.";
-    renderEditor();
-    await writeTextHandle(rootHandle, "app.js", await fetchFreshText("./app.js"));
-    state.uploadSyncMessage = "styles.css를 갱신하는 중입니다.";
-    renderEditor();
-    await writeTextHandle(rootHandle, "styles.css", await fetchFreshText("./styles.css"));
-    state.uploadSyncMessage = "scenario.js를 갱신하는 중입니다.";
-    renderEditor();
-    await writeTextHandle(dataHandle, "scenario.js", scenarioJsText());
-    const assetResult = await writeBundleAssets(rootHandle);
-    const suffix = assetResult.missing.length ? " 이미지 " + assetResult.missing.length + "개는 확인이 필요합니다." : " 이미지 " + assetResult.count + "개 포함.";
-    setUploadSyncState({ dirty: false, busy: false, message: "갱신 완료. GitHub 업로드 폴더를 최신으로 맞췄습니다. " + suffix });
-    showToast("갱신 완료. GitHub 업로드 폴더를 최신으로 맞췄습니다. " + suffix, 3800);
-  } catch (error) {
-    if(error && error.name === "AbortError"){
-      setUploadSyncState({ busy: false, dirty: true, message: "폴더 선택이 완료되지 않았습니다. 상위 RedBound 폴더에서 github-pages-upload를 한 번 선택한 뒤 '폴더 선택'을 눌러 주세요." });
-      return;
-    }
-    const detail = error && error.message ? " (" + error.message + ")" : "";
-    setUploadSyncState({ busy: false, dirty: true, message: "갱신 실패. 폴더 선택이나 권한을 다시 확인해 주세요." + detail });
-    showToast("갱신 실패. 폴더 선택이나 권한을 다시 확인해 주세요.", 4200);
-  }
-}
-function crc32(bytes){
-  if(!crc32.table){
-    crc32.table = Array.from({ length: 256 }, function(_, n){
-      let c = n;
-      for(let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
-      return c >>> 0;
-    });
-  }
-  let crc = 0xffffffff;
-  for(let i = 0; i < bytes.length; i++) crc = crc32.table[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-function push16(out, value){ out.push(value & 255, (value >>> 8) & 255); }
-function push32(out, value){ out.push(value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255); }
-function concatBytes(parts){
-  const size = parts.reduce(function(total, part){ return total + part.length; }, 0);
-  const result = new Uint8Array(size);
-  let offset = 0;
-  parts.forEach(function(part){ result.set(part, offset); offset += part.length; });
-  return result;
-}
-function zipTimestamp(){
-  const now = new Date();
-  return {
-    time: (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2),
-    date: ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()
-  };
-}
-function makeZipBlob(files){
-  const encoder = new TextEncoder();
-  const chunks = [];
-  const central = [];
-  let offset = 0;
-  const stamp = zipTimestamp();
-  files.forEach(function(file){
-    const nameBytes = encoder.encode(file.path.replace(/\\/g, "/"));
-    const data = file.data instanceof Uint8Array ? file.data : new Uint8Array(file.data);
-    const checksum = crc32(data);
-    const local = [];
-    push32(local, 0x04034b50);
-    push16(local, 20);
-    push16(local, 0x0800);
-    push16(local, 0);
-    push16(local, stamp.time);
-    push16(local, stamp.date);
-    push32(local, checksum);
-    push32(local, data.length);
-    push32(local, data.length);
-    push16(local, nameBytes.length);
-    push16(local, 0);
-    const localBytes = concatBytes([new Uint8Array(local), nameBytes, data]);
-    chunks.push(localBytes);
-
-    const header = [];
-    push32(header, 0x02014b50);
-    push16(header, 20);
-    push16(header, 20);
-    push16(header, 0x0800);
-    push16(header, 0);
-    push16(header, stamp.time);
-    push16(header, stamp.date);
-    push32(header, checksum);
-    push32(header, data.length);
-    push32(header, data.length);
-    push16(header, nameBytes.length);
-    push16(header, 0);
-    push16(header, 0);
-    push16(header, 0);
-    push16(header, 0);
-    push32(header, 0);
-    push32(header, offset);
-    central.push(concatBytes([new Uint8Array(header), nameBytes]));
-    offset += localBytes.length;
-  });
-  const centralStart = offset;
-  central.forEach(function(part){ chunks.push(part); offset += part.length; });
-  const end = [];
-  push32(end, 0x06054b50);
-  push16(end, 0);
-  push16(end, 0);
-  push16(end, files.length);
-  push16(end, files.length);
-  push32(end, offset - centralStart);
-  push32(end, centralStart);
-  push16(end, 0);
-  chunks.push(new Uint8Array(end));
-  return new Blob(chunks, { type: "application/zip" });
-}
-function downloadBlob(filename, blob){
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(function(){ URL.revokeObjectURL(url); }, 500);
-}
-async function downloadGithubUploadZip(){
-  try {
-    setUploadSyncState({ busy: true, message: "GitHub 업로드 ZIP을 만드는 중입니다." });
-    const encoder = new TextEncoder();
-    const files = [
-      { path: "index.html", data: encoder.encode(await fetchFreshText("./index.html")) },
-      { path: "app.js", data: encoder.encode(await fetchFreshText("./app.js")) },
-      { path: "styles.css", data: encoder.encode(await fetchFreshText("./styles.css")) },
-      { path: "data/scenario.js", data: encoder.encode(scenarioJsText()) }
-    ];
-    const missing = [];
-    const sources = bundleAssetSources();
-    for(let index = 0; index < sources.length; index++){
-      const src = sources[index];
-      const filename = localAssetFilename(src);
-      if(!filename) continue;
-      try {
-        state.uploadSyncMessage = "ZIP에 이미지 담는 중: " + filename + " (" + String(index + 1) + "/" + String(sources.length) + ")";
-        renderEditor();
-        const res = await fetch(assetUrl(src), { cache: "reload" });
-        if(!res.ok) throw new Error("missing");
-        files.push({ path: "assets/" + filename, data: new Uint8Array(await res.arrayBuffer()) });
-      } catch {
-        missing.push(filename);
-      }
-    }
-    downloadBlob("github-pages-upload.zip", makeZipBlob(files));
-    const suffix = missing.length ? " 이미지 " + missing.length + "개는 확인이 필요합니다." : " 이미지 " + String(files.length - 4) + "개 포함.";
-    setUploadSyncState({ busy: false, dirty: true, message: "ZIP 다운로드 완료. 압축을 풀어 GitHub에 올려 주세요. " + suffix });
-    showToast("ZIP 다운로드 완료. 압축을 풀어 GitHub에 올려 주세요.", 4200);
-  } catch (error) {
-    const detail = error && error.message ? " (" + error.message + ")" : "";
-    setUploadSyncState({ busy: false, dirty: true, message: "ZIP 다운로드 실패. 다시 시도해 주세요." + detail });
-    showToast("ZIP 다운로드 실패. 다시 시도해 주세요.", 4200);
-  }
-}
 function renderExportEditor(){
   els.editorBody.appendChild(make("div", "section-title", "미리보기 / 공유"));
   const previewRow = make("div", "button-row");
@@ -1665,8 +1416,8 @@ function renderExportEditor(){
   els.editorBody.appendChild(csvRow);
   els.editorBody.appendChild(make("p", "muted", "엑셀에서 장면ID, 화자, 대사, 배경, 다음장면, 퀘스트, 진행단계, 분기완료를 수정한 뒤 다시 가져올 수 있습니다. 등장캐릭터는 lord:left; liddy:right, 선택지는 문구 -> 장면ID 형식으로 입력합니다. 올클리어 분기는 분기완료에 auto를 입력합니다."));
 
-  els.editorBody.appendChild(make("div", "section-title", "GitHub 업로드"));
-  els.editorBody.appendChild(make("p", "muted upload-guide", "상단에 파일 저장 완료가 보이면 RedBound 폴더가 최신입니다.\nGitHub에는 index.html, app.js, styles.css, data 폴더, assets 폴더를 올리면 됩니다."));
+  els.editorBody.appendChild(make("div", "section-title", "GitHub에 올릴 파일"));
+  els.editorBody.appendChild(make("p", "muted upload-guide", "상단에 파일 저장 완료가 보이면 RedBound 폴더가 최신입니다.\nGitHub에는 이 RedBound 폴더의 index.html, app.js, styles.css, data 폴더, assets 폴더만 올리면 됩니다. 별도 업로드 폴더는 사용하지 않습니다."));
 }
 
 const SCENARIO_COLUMNS = ["장면ID", "메모", "화자", "대사", "배경", "다음장면", "퀘스트", "진행단계", "등장캐릭터", "선택지", "분기완료", "효과"];
