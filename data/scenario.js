@@ -1841,5 +1841,48 @@ window.FARM_VILLAGE_SCENARIO = {
       ],
       "memo": "물주기완료"
     }
-  }
+  },
+  "reviewStages": [
+    {
+      "id": "stage_001",
+      "title": false,
+      "memo": "에단 대화 끝. 농사를 시작",
+      "createdAt": "2026-07-14T00:50:44.002Z",
+      "nodeId": "scene_060",
+      "background": "field",
+      "quest": "farming",
+      "progress": 2,
+      "affection": {
+        "liddy": 1,
+        "sebastian": 1,
+        "gallion": 1,
+        "max": 1
+      },
+      "flags": {
+        "met_sebastian": true,
+        "met_gallion": true,
+        "met_max": true,
+        "done_scene_060": true,
+        "done_scene_061": true,
+        "done_scene_063": true,
+        "갈리온": true
+      },
+      "log": [],
+      "auto": false,
+      "dialoguePage": 0,
+      "appliedEffects": [],
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "liddy",
+          "position": "right"
+        }
+      ],
+      "playerName": "찌수니",
+      "territoryName": "방그래"
+    }
+  ]
 };

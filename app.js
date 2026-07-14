@@ -8,16 +8,16 @@ const originalScenario = window.FARM_VILLAGE_SCENARIO;
 const publishedScenario = loadPublishedScenario();
 const draftScenario = publishedScenario || loadDraft();
 const scenario = repairScenarioLinks(migrateAllClearBranches(migrateDiningRoute(normalizeScenarioNames(migrateAssetPaths(draftScenario ? mergeScenarioDraft(structuredClone(originalScenario), draftScenario) : structuredClone(originalScenario))))));
-const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null, uploadDirty: loadUploadDirty(), uploadSyncBusy: false, uploadSyncMessage: "", fileSaveStatus: "idle", fileSaveMessage: "" };
+const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, titleStageMenu: false, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null, uploadDirty: loadUploadDirty(), uploadSyncBusy: false, uploadSyncMessage: "", fileSaveStatus: "idle", fileSaveMessage: "" };
 const els = {
   backdrop: document.getElementById("backdrop"), backdropFill: document.getElementById("backdropFill"), characters: document.getElementById("characterLayer"), questTitle: document.getElementById("questTitle"), questProgress: document.getElementById("questProgress"), affection: document.getElementById("affectionPanel"),
   speaker: document.getElementById("speaker"), line: document.getElementById("line"), choices: document.getElementById("choices"), next: document.getElementById("nextButton"), auto: document.getElementById("autoButton"), log: document.getElementById("logButton"), reset: document.getElementById("resetButton"),
   panel: document.getElementById("logPanel"), closeLog: document.getElementById("closeLogButton"), panelContent: document.getElementById("panelContent"), editorBody: document.getElementById("editorBody"), playCurrent: document.getElementById("playCurrentButton"), saveFile: document.getElementById("saveFileButton"), headerSaveStatus: document.getElementById("headerSaveStatus"),
-  titleScreen: document.getElementById("titleScreen"), titleArt: document.getElementById("titleArt"), start: document.getElementById("startButton"), dialogue: document.querySelector(".dialogue")
+  titleScreen: document.getElementById("titleScreen"), titleArt: document.getElementById("titleArt"), start: document.getElementById("startButton"), stageSelect: document.getElementById("stageSelectButton"), stagePanel: document.getElementById("stageSelectPanel"), stageList: document.getElementById("stageSelectList"), stageBack: document.getElementById("stageBackButton"), dialogue: document.querySelector(".dialogue")
 };
 const isPublishMode = new URLSearchParams(window.location.search).has("publish") || window.location.hash.includes("publish");
 document.body.classList.toggle("publish-mode", isPublishMode);
-const APP_VERSION = "20260713g";
+const APP_VERSION = "20260713h";
 const assetVersion = new URLSearchParams(window.location.search).get("v") || APP_VERSION;
 let autoTimer = null;
 function assetUrl(src){
@@ -80,6 +80,20 @@ function reindexScenarioCopy(source){
   });
   copy.nodes = nodes;
   copy.start = idMap[copy.start] || Object.keys(nodes)[0] || copy.start;
+  if(Array.isArray(copy.reviewStages)){
+    copy.reviewStages.forEach(function(stage){
+      if(stage.nodeId && idMap[stage.nodeId]) stage.nodeId = idMap[stage.nodeId];
+      if(Array.isArray(stage.appliedEffects)){
+        stage.appliedEffects = stage.appliedEffects.map(function(key){
+          const text = String(key || "");
+          const colon = text.indexOf(":");
+          if(colon < 0) return text;
+          const oldId = text.slice(0, colon);
+          return (idMap[oldId] || oldId) + text.slice(colon);
+        });
+      }
+    });
+  }
   return { scenario: copy, idMap: idMap };
 }
 function publishedUrl(){
@@ -536,6 +550,7 @@ function reindexEditorSceneIds(){
   const result = reindexScenarioCopy(scenario);
   scenario.nodes = result.scenario.nodes;
   scenario.start = result.scenario.start;
+  scenario.reviewStages = result.scenario.reviewStages || reviewStages();
   state.nodeId = result.idMap[currentId] || scenario.start;
   state.dialoguePage = 0;
   repairScenarioLinks(scenario);
@@ -669,8 +684,49 @@ function renderTitleScreen(){
   if(els.titleScreen) els.titleScreen.hidden = !state.title;
   const titleSrc = assetUrl(scenario.titleImage || "");
   if(els.titleArt && titleSrc && els.titleArt.getAttribute("src") !== titleSrc) els.titleArt.src = titleSrc;
+  renderTitleStageList();
 }
-function startGame(){ state.title = false; closePanel(); render(); }
+function renderTitleStageList(){
+  const stages = reviewStages();
+  if(els.stageSelect){
+    els.stageSelect.hidden = !stages.length;
+    els.stageSelect.disabled = !stages.length;
+  }
+  if(els.stagePanel) els.stagePanel.hidden = !(state.title && state.titleStageMenu);
+  if(!els.stageList) return;
+  clear(els.stageList);
+  if(!stages.length){
+    els.stageList.appendChild(make("p", "muted", "저장된 검수 스테이지가 없습니다."));
+    return;
+  }
+  stages.forEach(function(stage, index){
+    const item = make("button", "stage-select-item");
+    item.type = "button";
+    item.appendChild(make("strong", "", reviewStageTitle(stage, index)));
+    item.appendChild(make("span", "", reviewStageSummary(stage)));
+    item.addEventListener("click", function(){ restoreReviewStageById(stage.id); });
+    els.stageList.appendChild(item);
+  });
+}
+function resetRuntime(toTitle){
+  clearAuto();
+  clearPlayerName();
+  clearTerritoryName();
+  state.nodeId = scenario.start;
+  state.background = "field";
+  state.quest = "intro";
+  state.progress = 0;
+  state.affection = {};
+  state.flags = {};
+  state.log = [];
+  state.auto = false;
+  state.title = !!toTitle;
+  state.titleStageMenu = false;
+  state.dialoguePage = 0;
+  state.appliedEffects = new Set();
+  state.characters = [];
+}
+function startGame(){ resetRuntime(false); closePanel(); render(); }
 function renderCharacters(){ clear(els.characters); const activeId = speakerCharacterId(currentNode()?.speaker); const hasFocus = state.characters.length > 1 && state.characters.some(function(item){ return item.id === activeId; }); state.characters.forEach(function(item){ const src = assetUrl(scenario.assets.characters[item.id]); if(!src) return; const img = make("img", "character " + (item.position || "center")); if(hasFocus) img.classList.add(item.id === activeId ? "is-speaking" : "is-dimmed"); img.src = src; img.alt = scenario.characters[item.id]?.name || item.id; els.characters.appendChild(img); }); }
 function dialogueLineCapacity(){
   const lineEl = els?.line;
@@ -870,8 +926,8 @@ function goTo(id){
   render();
 }
 function selectChoice(choice){ clearAuto(); if(!isLastDialoguePage(currentNode())) return; if(choice.reset){ resetGame(); return; } if(choice.action === "openLog"){ openPanel("log"); return; } if(choice.next) goTo(choice.next); }
-function resetGame(){ clearPlayerName(); clearTerritoryName(); state.nodeId = scenario.start; state.background = "field"; state.quest = "intro"; state.progress = 0; state.affection = {}; state.flags = {}; state.log = []; state.title = true; state.dialoguePage = 0; state.appliedEffects = new Set(); state.characters = []; render(); }
-function playCurrent(){ const node = currentNode(); state.title = false; state.dialoguePage = 0; state.background = node.bg || state.background; state.quest = node.quest || state.quest; state.progress = typeof node.progress === "number" ? node.progress : state.progress; state.characters = structuredClone(node.characters || []); state.appliedEffects = new Set(); render(); }
+function resetGame(){ resetRuntime(true); render(); }
+function playCurrent(){ const node = currentNode(); state.title = false; state.titleStageMenu = false; state.dialoguePage = 0; state.background = node.bg || state.background; state.quest = node.quest || state.quest; state.progress = typeof node.progress === "number" ? node.progress : state.progress; state.characters = structuredClone(node.characters || []); state.appliedEffects = new Set(); render(); }
 function openPanel(tab){ state.tab = tab || state.tab; els.panel.style.display = "block"; els.panel.style.visibility = "visible"; els.panel.style.pointerEvents = "auto"; els.panel.classList.add("open"); renderPanel(); }
 function closePanel(){ if(els.panel){ els.panel.classList.remove("open"); els.panel.style.display = "none"; els.panel.style.visibility = "hidden"; els.panel.style.pointerEvents = "none"; } }
 function togglePanel(tab){ if(els.panel.classList.contains("open") && (!tab || state.tab === tab)){ closePanel(); return; } openPanel(tab); }
@@ -942,15 +998,54 @@ function renderEditor(){
   if(state.editorTab === "assets") renderAssetEditor();
   if(state.editorTab === "export") renderExportEditor();
 }
-function loadReviewCheckpointData(){
+function reviewStages(){
+  if(!Array.isArray(scenario.reviewStages)) scenario.reviewStages = [];
+  return scenario.reviewStages;
+}
+function migrateLegacyReviewCheckpoint(){
+  if(reviewStages().length) return;
   try {
     const raw = localStorage.getItem(REVIEW_CHECKPOINT_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+    if(!raw) return;
+    const saved = JSON.parse(raw);
+    if(!saved || !saved.nodeId) return;
+    reviewStages().push({
+      id: nextReviewStageId(),
+      title: "이전 검수 포인트",
+      memo: "이전 단일 검수 포인트에서 가져옴",
+      createdAt: new Date().toISOString(),
+      ...saved,
+      log: []
+    });
+    localStorage.removeItem(REVIEW_CHECKPOINT_KEY);
+    saveDraft(false);
+  } catch {}
 }
-function checkpointSummary(data){
-  if(!data) return "저장된 검수 포인트가 없습니다.";
-  return "저장 위치: " + (data.nodeId || "-") + " / 퀘스트: " + (data.quest || "-") + " / 완료 플래그 " + Object.keys(data.flags || {}).length + "개";
+function nextReviewStageId(){
+  let index = reviewStages().length + 1;
+  let id = "stage_" + String(index).padStart(3, "0");
+  const used = new Set(reviewStages().map(function(stage){ return stage.id; }));
+  while(used.has(id)){
+    index++;
+    id = "stage_" + String(index).padStart(3, "0");
+  }
+  return id;
+}
+function reviewStageTitle(stage, index){
+  return String(stage?.title || "스테이지 " + String((index || 0) + 1).padStart(2, "0")).trim();
+}
+function reviewStageSummary(stage){
+  if(!stage) return "";
+  const quest = scenario.quests[stage.quest];
+  const questText = quest ? quest.title : (stage.quest || "-");
+  const flagCount = Object.keys(stage.flags || {}).length;
+  return "시작: " + (stage.nodeId || "-") + " / 퀘스트: " + questText + " / 완료 플래그 " + flagCount + "개";
+}
+function defaultReviewStageTitle(){
+  const quest = scenario.quests[state.quest];
+  const node = currentNode();
+  const label = String(node?.memo || quest?.title || state.quest || state.nodeId).trim();
+  return String(reviewStages().length + 1).padStart(2, "0") + ". " + label;
 }
 function reviewCheckpointSnapshot(){
   return {
@@ -960,7 +1055,7 @@ function reviewCheckpointSnapshot(){
     progress: state.progress,
     affection: structuredClone(state.affection || {}),
     flags: structuredClone(state.flags || {}),
-    log: structuredClone(state.log || []),
+    log: [],
     auto: false,
     title: false,
     dialoguePage: state.dialoguePage,
@@ -970,17 +1065,41 @@ function reviewCheckpointSnapshot(){
     territoryName: state.territoryName || ""
   };
 }
-function saveReviewCheckpoint(){
+function saveReviewStage(title){
   const snapshot = reviewCheckpointSnapshot();
-  localStorage.setItem(REVIEW_CHECKPOINT_KEY, JSON.stringify(snapshot));
-  showToast("검수 포인트를 저장했습니다: " + snapshot.nodeId);
+  const stage = {
+    id: nextReviewStageId(),
+    title: String(title || "").trim() || defaultReviewStageTitle(),
+    memo: currentNode()?.memo || "",
+    createdAt: new Date().toISOString(),
+    ...snapshot
+  };
+  reviewStages().push(stage);
+  saveDraft();
+  showToast("검수 스테이지를 저장했습니다: " + stage.title);
   renderEditor();
+  renderTitleScreen();
 }
-function restoreReviewCheckpoint(){
-  const saved = loadReviewCheckpointData();
-  if(!saved){ showToast("저장된 검수 포인트가 없습니다."); return; }
+function updateReviewStage(index){
+  const stages = reviewStages();
+  const old = stages[index];
+  if(!old) return;
+  stages[index] = {
+    ...old,
+    ...reviewCheckpointSnapshot(),
+    title: old.title || defaultReviewStageTitle(),
+    memo: currentNode()?.memo || old.memo || "",
+    updatedAt: new Date().toISOString()
+  };
+  saveDraft();
+  showToast("검수 스테이지를 현재 위치로 갱신했습니다.");
+  renderEditor();
+  renderTitleScreen();
+}
+function restoreReviewStage(saved){
+  if(!saved){ showToast("선택한 검수 스테이지를 찾을 수 없습니다."); return; }
   const nodeId = findNodeIdLoose(saved.nodeId);
-  if(!nodeId){ showToast("검수 포인트 장면을 찾을 수 없습니다: " + saved.nodeId); return; }
+  if(!nodeId){ showToast("검수 스테이지 장면을 찾을 수 없습니다: " + saved.nodeId); return; }
   state.nodeId = nodeId;
   state.background = saved.background || "field";
   state.quest = saved.quest || "intro";
@@ -990,29 +1109,58 @@ function restoreReviewCheckpoint(){
   state.log = structuredClone(saved.log || []);
   state.auto = false;
   state.title = false;
+  state.titleStageMenu = false;
   state.dialoguePage = Number(saved.dialoguePage || 0);
   state.appliedEffects = new Set(saved.appliedEffects || []);
   state.characters = structuredClone(saved.characters || []);
   if(saved.playerName) savePlayerName(saved.playerName); else clearPlayerName();
   if(saved.territoryName) saveTerritoryName(saved.territoryName); else clearTerritoryName();
   closePanel();
-  showToast("검수 포인트부터 시작합니다: " + nodeId);
+  showToast("검수 스테이지부터 시작합니다: " + (saved.title || nodeId));
   render();
 }
-function deleteReviewCheckpoint(){
-  localStorage.removeItem(REVIEW_CHECKPOINT_KEY);
-  showToast("검수 포인트를 삭제했습니다.");
+function restoreReviewStageById(id){
+  const stage = reviewStages().find(function(item){ return item.id === id; });
+  restoreReviewStage(stage);
+}
+function deleteReviewStage(index){
+  const stages = reviewStages();
+  if(!stages[index]) return;
+  const removed = stages.splice(index, 1)[0];
+  saveDraft();
+  showToast("검수 스테이지를 삭제했습니다: " + reviewStageTitle(removed, index));
   renderEditor();
+  renderTitleScreen();
 }
 function renderReviewCheckpointControls(){
   const box = make("div", "choice-editor manager-card review-checkpoint");
-  box.appendChild(make("strong", "", "검수 세이브포인트"));
-  box.appendChild(make("p", "muted", checkpointSummary(loadReviewCheckpointData())));
-  const row = make("div", "button-row");
-  row.appendChild(button("검수 포인트 저장", saveReviewCheckpoint));
-  row.appendChild(button("검수 포인트부터 시작", restoreReviewCheckpoint));
-  row.appendChild(button("삭제", deleteReviewCheckpoint));
-  box.appendChild(row);
+  box.appendChild(make("strong", "", "검수 스테이지"));
+  box.appendChild(make("p", "muted", "팀원에게 공유할 시작 지점을 여러 개 저장합니다. 저장된 스테이지는 퍼블리싱 첫 화면의 스테이지 선택에 표시됩니다."));
+  const createRow = make("div", "button-row stage-create-row");
+  const titleInput = plainInput(defaultReviewStageTitle(), "스테이지 이름");
+  createRow.appendChild(titleInput);
+  createRow.appendChild(button("현재 지점을 스테이지로 저장", function(){ saveReviewStage(titleInput.value); }));
+  box.appendChild(createRow);
+  const stages = reviewStages();
+  if(!stages.length){
+    box.appendChild(make("p", "muted", "아직 저장된 검수 스테이지가 없습니다."));
+  }
+  stages.forEach(function(stage, index){
+    const item = make("div", "review-stage-item");
+    item.appendChild(draftTextField("스테이지 이름", false, reviewStageTitle(stage, index), function(v){
+      stage.title = String(v || "").trim() || reviewStageTitle(stage, index);
+      saveDraft();
+      renderEditor();
+      renderTitleScreen();
+    }));
+    item.appendChild(make("p", "muted", reviewStageSummary(stage)));
+    const row = make("div", "button-row");
+    row.appendChild(button("여기부터 시작", function(){ restoreReviewStage(stage); }));
+    row.appendChild(button("현재 위치로 갱신", function(){ updateReviewStage(index); }));
+    row.appendChild(button("삭제", function(){ deleteReviewStage(index); }));
+    item.appendChild(row);
+    box.appendChild(item);
+  });
   els.editorBody.appendChild(box);
 }
 function renderSceneEditor(){
@@ -1877,6 +2025,8 @@ function showToast(message, duration){ const toast = make("div", "toast", messag
 els.backdrop.addEventListener("load", function(){ els.backdrop.classList.add("loaded"); });
 els.next.addEventListener("click", next);
 if(els.start) els.start.addEventListener("click", startGame);
+if(els.stageSelect) els.stageSelect.addEventListener("click", function(){ state.titleStageMenu = true; renderTitleScreen(); });
+if(els.stageBack) els.stageBack.addEventListener("click", function(){ state.titleStageMenu = false; renderTitleScreen(); });
 document.querySelector(".dialogue").addEventListener("click", function(event){
   const interactive = event.target.closest("button, input, textarea, select, label, .name-entry, .choice");
   if(interactive) return;
@@ -1905,5 +2055,6 @@ window.addEventListener("keydown", function(event){
   }
   if(!editing && !inEditor && event.key.toLowerCase() === "l") togglePanel("log");
 });
+migrateLegacyReviewCheckpoint();
 if(draftScenario && !publishedScenario) saveDraft(false);
 render();
