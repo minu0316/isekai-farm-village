@@ -6,7 +6,7 @@ const originalScenario = window.FARM_VILLAGE_SCENARIO;
 const publishedScenario = loadPublishedScenario();
 const draftScenario = publishedScenario || loadDraft();
 const scenario = repairScenarioLinks(migrateAllClearBranches(migrateDiningRoute(normalizeScenarioNames(migrateAssetPaths(draftScenario ? mergeScenarioDraft(structuredClone(originalScenario), draftScenario) : structuredClone(originalScenario))))));
-const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, titleStageMenu: false, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null, fileSaveStatus: "idle", fileSaveMessage: "" };
+const state = { nodeId: scenario.start, background: "field", quest: "intro", progress: 0, affection: {}, flags: {}, log: [], auto: false, tab: "log", editorTab: "scene", title: true, titleStageMenu: false, dialoguePage: 0, appliedEffects: new Set(), characters: [], playerName: loadPlayerName(), territoryName: loadTerritoryName(), storyAnalysis: null, fileSaveStatus: "idle", fileSaveMessage: "", exportStageId: "", editorToolPanel: "" };
 const els = {
   backdrop: document.getElementById("backdrop"), backdropFill: document.getElementById("backdropFill"), characters: document.getElementById("characterLayer"), questTitle: document.getElementById("questTitle"), questProgress: document.getElementById("questProgress"), affection: document.getElementById("affectionPanel"),
   speaker: document.getElementById("speaker"), line: document.getElementById("line"), choices: document.getElementById("choices"), next: document.getElementById("nextButton"), auto: document.getElementById("autoButton"), log: document.getElementById("logButton"), reset: document.getElementById("resetButton"),
@@ -15,7 +15,7 @@ const els = {
 };
 const isPublishMode = new URLSearchParams(window.location.search).has("publish") || window.location.hash.includes("publish");
 document.body.classList.toggle("publish-mode", isPublishMode);
-const APP_VERSION = "20260714a";
+const APP_VERSION = "20260715a";
 const assetVersion = new URLSearchParams(window.location.search).get("v") || APP_VERSION;
 let autoTimer = null;
 function assetUrl(src){
@@ -928,6 +928,7 @@ function renderPanel(){
 }
 function switchEditorTab(tabName){
   state.editorTab = tabName;
+  if(tabName !== "scene") state.editorToolPanel = "";
   renderEditor();
 }
 function renderFileSaveStatus(){
@@ -1116,10 +1117,29 @@ function renderReviewCheckpointControls(){
   });
   els.editorBody.appendChild(box);
 }
+function renderSceneToolMenu(){
+  const wrap = make("div", "scene-tool-menu");
+  const row = make("div", "button-row scene-tool-row");
+  const reviewButton = button("검수 스테이지", function(){
+    state.editorToolPanel = state.editorToolPanel === "review" ? "" : "review";
+    renderEditor();
+  });
+  const storyButton = button("스토리 구조 검사", function(){
+    state.editorToolPanel = state.editorToolPanel === "story" ? "" : "story";
+    renderEditor();
+  });
+  reviewButton.classList.toggle("active", state.editorToolPanel === "review");
+  storyButton.classList.toggle("active", state.editorToolPanel === "story");
+  row.appendChild(reviewButton);
+  row.appendChild(storyButton);
+  wrap.appendChild(row);
+  els.editorBody.appendChild(wrap);
+  if(state.editorToolPanel === "review") renderReviewCheckpointControls();
+  if(state.editorToolPanel === "story") renderStoryStructureTools();
+}
 function renderSceneEditor(){
   const node = currentNode();
-  renderReviewCheckpointControls();
-  renderStoryStructureTools();
+  renderSceneToolMenu();
   els.editorBody.appendChild(field("장면 ID", select(nodeIds(), state.nodeId, setCurrentNode, undefined, nodeLabel)));
   els.editorBody.appendChild(draftTextField("장면 메모", false, node.memo || "", function(v){ setNodeField("memo", v.trim()); }));
   const row = make("div", "button-row");
@@ -1398,6 +1418,59 @@ function appendPublishControls(){
 function scenarioJsText(){
   return "window.FARM_VILLAGE_SCENARIO = " + JSON.stringify(scenario, null, 2) + ";\n";
 }
+function orderedReviewStages(){
+  const ids = nodeIds();
+  return reviewStages().map(function(stage, index){
+    const nodeId = findNodeIdLoose(stage.nodeId);
+    return { stage: stage, index: index, nodeId: nodeId, order: ids.indexOf(nodeId) };
+  }).filter(function(item){ return item.nodeId && item.order >= 0; })
+    .sort(function(a, b){ return a.order - b.order || a.index - b.index; });
+}
+function reviewStageRange(stageId){
+  const ordered = orderedReviewStages();
+  const ids = nodeIds();
+  const selected = ordered.find(function(item){ return item.stage.id === stageId; });
+  if(!selected) return null;
+  const next = ordered.find(function(item){ return item.order > selected.order; });
+  const endOrder = next ? next.order : ids.length;
+  return {
+    stage: selected.stage,
+    index: selected.index,
+    nodeId: selected.nodeId,
+    ids: ids.slice(selected.order, endOrder),
+    nextNodeId: next ? next.nodeId : ""
+  };
+}
+function reviewStageRangeLabel(range){
+  if(!range) return "";
+  const last = range.ids[range.ids.length - 1] || range.nodeId;
+  return reviewStageTitle(range.stage, range.index) + " (" + range.nodeId + " ~ " + last + ")";
+}
+function safeFilePart(value){
+  return String(value || "stage").trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, "-").slice(0, 48) || "stage";
+}
+function scopedScenarioForStage(stageId){
+  const range = reviewStageRange(stageId);
+  if(!range || !range.ids.length) return null;
+  const nodes = {};
+  range.ids.forEach(function(id){
+    if(scenario.nodes[id]) nodes[id] = structuredClone(scenario.nodes[id]);
+  });
+  return { range: range, scenario: { nodes: nodes } };
+}
+function scenarioExportData(stageId){
+  if(!stageId){
+    return { rows: sceneRows(), suffix: "", label: "전체" };
+  }
+  const scoped = scopedScenarioForStage(stageId);
+  if(!scoped) return null;
+  return {
+    rows: sceneRows(scoped.scenario),
+    suffix: "-" + safeFilePart(scoped.range.stage.id || reviewStageTitle(scoped.range.stage, scoped.range.index)),
+    label: reviewStageTitle(scoped.range.stage, scoped.range.index),
+    range: scoped.range
+  };
+}
 function renderExportEditor(){
   els.editorBody.appendChild(make("div", "section-title", "미리보기 / 공유"));
   const previewRow = make("div", "button-row");
@@ -1406,15 +1479,36 @@ function renderExportEditor(){
   els.editorBody.appendChild(previewRow);
 
   els.editorBody.appendChild(make("div", "section-title", "엑셀 / CSV"));
+  const stages = orderedReviewStages();
+  if(stages.length){
+    if(!stages.some(function(item){ return item.stage.id === state.exportStageId; })) state.exportStageId = stages[0].stage.id;
+    const stageSelect = document.createElement("select");
+    stages.forEach(function(item){
+      const range = reviewStageRange(item.stage.id);
+      const opt = document.createElement("option");
+      opt.value = item.stage.id;
+      opt.textContent = reviewStageRangeLabel(range);
+      opt.selected = item.stage.id === state.exportStageId;
+      stageSelect.appendChild(opt);
+    });
+    stageSelect.addEventListener("change", function(){ state.exportStageId = stageSelect.value; });
+    els.editorBody.appendChild(field("스테이지 선택", stageSelect));
+  }
   const excelRow = make("div", "button-row");
-  excelRow.appendChild(button("엑셀 양식 내보내기", exportScenarioExcel));
-  excelRow.appendChild(button("엑셀/CSV 가져오기", openScenarioImport));
+  excelRow.appendChild(button("엑셀 전체 내보내기", function(){ exportScenarioExcel(); }));
+  if(stages.length) excelRow.appendChild(button("선택 스테이지 엑셀", function(){ exportScenarioExcel(state.exportStageId); }));
   els.editorBody.appendChild(excelRow);
 
   const csvRow = make("div", "button-row");
-  csvRow.appendChild(button("CSV 내보내기", exportScenarioCsv));
+  csvRow.appendChild(button("CSV 전체 내보내기", function(){ exportScenarioCsv(); }));
+  if(stages.length) csvRow.appendChild(button("선택 스테이지 CSV", function(){ exportScenarioCsv(state.exportStageId); }));
   els.editorBody.appendChild(csvRow);
-  els.editorBody.appendChild(make("p", "muted", "엑셀에서 장면ID, 화자, 대사, 배경, 다음장면, 퀘스트, 진행단계, 분기완료를 수정한 뒤 다시 가져올 수 있습니다. 등장캐릭터는 lord:left; liddy:right, 선택지는 문구 -> 장면ID 형식으로 입력합니다. 올클리어 분기는 분기완료에 auto를 입력합니다."));
+
+  const importRow = make("div", "button-row");
+  importRow.appendChild(button("전체 가져오기", function(){ openScenarioImport(); }));
+  if(stages.length) importRow.appendChild(button("선택 스테이지 가져오기", function(){ openScenarioImport(state.exportStageId); }));
+  els.editorBody.appendChild(importRow);
+  els.editorBody.appendChild(make("p", "muted", "엑셀에서 장면ID, 화자, 대사, 배경, 다음장면, 퀘스트, 진행단계, 분기완료를 수정한 뒤 다시 가져올 수 있습니다. 등장캐릭터는 lord:left; liddy:right, 선택지는 문구 -> 장면ID 형식으로 입력합니다. 올클리어 분기는 분기완료에 auto를 입력합니다.\n스테이지 내보내기는 선택한 검수 스테이지부터 다음 스테이지 직전까지 포함합니다. 스테이지 가져오기는 그 구간에 들어있는 장면만 수정합니다."));
 
   els.editorBody.appendChild(make("div", "section-title", "GitHub에 올릴 파일"));
   els.editorBody.appendChild(make("p", "muted upload-guide", "상단에 파일 저장 완료가 보이면 RedBound 폴더가 최신입니다.\nGitHub에는 이 RedBound 폴더의 index.html, app.js, styles.css, data 폴더, assets 폴더만 올리면 됩니다. 별도 업로드 폴더는 사용하지 않습니다."));
@@ -1482,8 +1576,10 @@ function parseEffects(value){
   try { const parsed = JSON.parse(text); return Array.isArray(parsed) ? parsed : []; }
   catch { return []; }
 }
-function exportScenarioExcel(){
-  const rows = sceneRows();
+function exportScenarioExcel(stageId){
+  const data = scenarioExportData(stageId);
+  if(!data){ showToast("내보낼 스테이지를 찾지 못했습니다."); return; }
+  const rows = data.rows;
   const head = SCENARIO_COLUMNS.map(function(col){ return "<th>" + escapeHtml(col) + "</th>"; }).join("");
   const body = rows.map(function(row){
     return "<tr>" + SCENARIO_COLUMNS.map(function(col){
@@ -1492,15 +1588,17 @@ function exportScenarioExcel(){
     }).join("") + "</tr>";
   }).join("\n");
   const html = "<!doctype html><html><head><meta charset='UTF-8'></head><body><table border='1'><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table></body></html>";
-  downloadText("isekai-farm-scenario.xls", html, "application/vnd.ms-excel;charset=utf-8");
-  showToast("엑셀 입력양식을 내보냈습니다.");
+  downloadText("isekai-farm-scenario" + data.suffix + ".xls", html, "application/vnd.ms-excel;charset=utf-8");
+  showToast(data.label + " 엑셀 입력양식을 내보냈습니다.");
 }
-function exportScenarioCsv(){
-  const rows = sceneRows();
+function exportScenarioCsv(stageId){
+  const data = scenarioExportData(stageId);
+  if(!data){ showToast("내보낼 스테이지를 찾지 못했습니다."); return; }
+  const rows = data.rows;
   const csv = [SCENARIO_COLUMNS].concat(rows.map(function(row){ return SCENARIO_COLUMNS.map(function(col){ return row[col] || ""; }); }))
     .map(function(row){ return row.map(csvCell).join(","); }).join("\r\n");
-  downloadText("isekai-farm-scenario.csv", "\ufeff" + csv, "text/csv;charset=utf-8");
-  showToast("CSV를 내보냈습니다.");
+  downloadText("isekai-farm-scenario" + data.suffix + ".csv", "\ufeff" + csv, "text/csv;charset=utf-8");
+  showToast(data.label + " CSV를 내보냈습니다.");
 }
 function csvCell(value){ return '"' + String(value ?? "").replace(/"/g, '""') + '"'; }
 function downloadText(filename, text, type){
@@ -1514,24 +1612,24 @@ function downloadText(filename, text, type){
   a.remove();
   setTimeout(function(){ URL.revokeObjectURL(url); }, 500);
 }
-function openScenarioImport(){
+function openScenarioImport(stageId){
   const picker = document.createElement("input");
   picker.type = "file";
   picker.accept = ".xls,.html,.htm,.csv,.tsv,text/html,text/csv,text/tab-separated-values";
-  picker.addEventListener("change", function(){ const file = picker.files && picker.files[0]; if(file) importScenarioFile(file); });
+  picker.addEventListener("change", function(){ const file = picker.files && picker.files[0]; if(file) importScenarioFile(file, stageId); });
   picker.click();
 }
-async function importScenarioFile(file){
+async function importScenarioFile(file, stageId){
   const text = await file.text();
   const lower = file.name.toLowerCase();
   const rows = lower.endsWith(".csv") ? parseDelimited(text, ",") : (lower.endsWith(".tsv") ? parseDelimited(text, "	") : parseExcelHtml(text));
-  const count = applyScenarioRows(rows);
-  if(!count){ showToast("가져올 장면을 찾지 못했습니다."); return; }
+  const count = applyScenarioRows(rows, stageId);
+  if(!count){ showToast(stageId ? "선택 스테이지에 맞는 장면을 찾지 못했습니다." : "가져올 장면을 찾지 못했습니다."); return; }
   saveDraft();
   state.dialoguePage = 0;
   if(!scenario.nodes[state.nodeId]) state.nodeId = scenario.start;
   render();
-  showToast(String(count) + "개 장면을 가져왔습니다.");
+  showToast((stageId ? "선택 스테이지 " : "") + String(count) + "개 장면을 가져왔습니다.");
 }
 function parseExcelHtml(text){
   const doc = new DOMParser().parseFromString(text, "text/html");
@@ -1559,8 +1657,11 @@ function parseDelimited(text, delimiter){
   row.push(cell); rows.push(row);
   return rows.filter(function(r){ return r.some(function(c){ return String(c).trim(); }); });
 }
-function applyScenarioRows(tableRows){
+function applyScenarioRows(tableRows, stageId){
   if(!tableRows || tableRows.length < 2) return 0;
+  const range = stageId ? reviewStageRange(stageId) : null;
+  if(stageId && !range) return 0;
+  const allowedIds = range ? new Set(range.ids) : null;
   const header = tableRows[0].map(function(h){ return String(h || "").trim(); });
   const index = {};
   header.forEach(function(name, i){ index[name] = i; });
@@ -1570,6 +1671,7 @@ function applyScenarioRows(tableRows){
   tableRows.slice(1).forEach(function(row){
     const id = cell(row, index, "장면ID").trim();
     if(!id) return;
+    if(allowedIds && !allowedIds.has(id)) return;
     const previous = scenario.nodes[id] || {};
     const node = { ...previous };
     setOptional(node, "memo", cell(row, index, "메모"));
@@ -1593,6 +1695,10 @@ function applyScenarioRows(tableRows){
     count++;
   });
   if(!count) return 0;
+  if(allowedIds){
+    Object.keys(reordered).forEach(function(id){ scenario.nodes[id] = reordered[id]; });
+    return count;
+  }
   Object.keys(scenario.nodes).forEach(function(id){ if(!reordered[id]) reordered[id] = scenario.nodes[id]; });
   scenario.nodes = reordered;
   scenario.start = scenario.nodes[scenario.start] ? scenario.start : Object.keys(scenario.nodes)[0];

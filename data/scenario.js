@@ -9,7 +9,10 @@ window.FARM_VILLAGE_SCENARIO = {
       "bg": "./assets/bg-wall.png",
       "bg_2": "./assets/bg-storage.png",
       "cleanwell": "./assets/bg-cleanwell.png",
-      "sprout": "./assets/green-field.png"
+      "sprout": "./assets/green-field.png",
+      "magic_carrot": "./assets/magic-carrot-field.png",
+      "harvest_field": "./assets/harvest-field.png",
+      "empty_field": "./assets/empty-field.png"
     },
     "characters": {
       "lord": "./assets/char-lord-sheet.png",
@@ -92,6 +95,14 @@ window.FARM_VILLAGE_SCENARIO = {
       "title": "물주기",
       "steps": [
         "마나당근에 물주기"
+      ]
+    },
+    "first_harvest": {
+      "title": "첫수확",
+      "steps": [
+        "기다리기",
+        "낫질하기",
+        "수확하기"
       ]
     }
   },
@@ -1825,7 +1836,7 @@ window.FARM_VILLAGE_SCENARIO = {
     },
     "scene_099": {
       "speaker": "세바스찬",
-      "text": "영주님, 마나 당근을 재배에 성공하셨군요? \n정말 잘 키우셨습니다. 선대 영주님과 자주 먹던 마나당근 스프가 생각나는군요.",
+      "text": "영주님, 마나 당근 싹틔우기에 성공하셨군요? \n정말 축하드립니다. 선대 영주님과 자주 먹던 마나당근 스프가 생각나는군요. \n곧 다시 먹을 수 있겠죠? \n이제 잘 성장할 때까지 잡초도 잘 뽑아주고 흙이 마르지 않게 물도 잘 주세요.",
       "bg": "sprout",
       "quest": "water",
       "progress": 1,
@@ -1839,13 +1850,219 @@ window.FARM_VILLAGE_SCENARIO = {
           "position": "right"
         }
       ],
-      "memo": "물주기완료"
+      "memo": "물주기완료",
+      "next": "scene_100"
+    },
+    "scene_100": {
+      "speaker": "주인공",
+      "text": "우와~ \n물을 주고, 잡초를 뽑고 기다리니 이렇게 탐스러운 마나 당근이 자랐어. \n이제 수확해서 맛있는 마나당근 스프를 배불리 먹어야지! 그런데, 수확은 어떻게? 머리채 잡고 뽑으면 되나?",
+      "bg": "magic_carrot",
+      "quest": "first_harvest",
+      "progress": 1,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        }
+      ],
+      "memo": "성장기다림",
+      "next": "scene_101"
+    },
+    "scene_101": {
+      "speaker": "세바스찬",
+      "text": "영주님, 머리채라뇨. 기품을 지키세요.\n농작물은 애정을 가지고 애지중지 다루셔야 합니다. \n당근 뿌리가 안다치게 살살 다뤄주세요. \n농작물 수확은 이런 식으로...\n(튜토리얼 진행)",
+      "bg": "magic_carrot",
+      "quest": "first_harvest",
+      "progress": 1,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "sebastian",
+          "position": "right"
+        }
+      ],
+      "memo": "수확의힌트",
+      "next": "scene_102"
+    },
+    "scene_102": {
+      "speaker": "주인공",
+      "text": "꺄아~ 드디어 마나 당근 수확에 성공했어! \n이제 아쉽지만 당근만 들어간 따끈한 스프를 먹을 수 있어. \n맹물에 넣고 끓이기만 해도 맛있을 거야. 따뜻한 국물에 찍어 먹으면 그 빵도 먹을 수 있겠지? 미션 클리어~!",
+      "bg": "harvest_field",
+      "quest": "first_harvest",
+      "progress": 2,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "sebastian",
+          "position": "right"
+        }
+      ],
+      "memo": "마나당근 수확성공",
+      "next": "scene_103"
+    },
+    "scene_103": {
+      "speaker": "에단",
+      "text": "당근 스프? 클리어? 전 반대입니다! \n100년째 제국을 지탱해온 제국상단의 3대 후계자 저 에단 스크루지 3세! \n어릴 때부터 '부자 영주 가난한 영주'를 10번 이상 읽으며 경제 영재교육을 받은 저는 이런 식의 하루 벌어 먹고 사는 자급구조를 위해 이 영지에 투자한 것이 아닙니다. ",
+      "bg": "harvest_field",
+      "progress": 0,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "ethan",
+          "position": "right"
+        }
+      ],
+      "memo": "수확 후 에단 등장",
+      "next": "scene_104"
+    },
+    "scene_104": {
+      "speaker": "주인공",
+      "text": "으앗, 깜짝이야. \n(하나도 안궁금해. 너의 정보.)\n그럼 어떡해요?",
+      "bg": "harvest_field",
+      "progress": 0,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "ethan",
+          "position": "right"
+        }
+      ],
+      "memo": "먹을래 저장할래",
+      "choices": [
+        {
+          "text": "먹어야 일하죠!",
+          "next": "scene_105"
+        },
+        {
+          "text": "그럼 팔까요?",
+          "next": "scene_108"
+        }
+      ]
+    },
+    "scene_105": {
+      "speaker": "에단",
+      "text": "물론 먹는 것도 중요하죠. 하지만, 먹는 건 최소한으로 하고 이 첫 수확물을 시드로 활용해서 또 모종을 만들어야죠. \n말 그대로 이 당근은 소중한 시드입니다. \n그런 시드를 드실려구요?",
+      "bg": "harvest_field",
+      "progress": 0,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "ethan",
+          "position": "right"
+        }
+      ],
+      "memo": "먹어야 일하죠",
+      "next": "scene_106"
+    },
+    "scene_106": {
+      "speaker": "주인공",
+      "text": "알겠어요. 애써 수확한 첫 수확물인데, 먹어버릴려고 했다니, 부끄럽네요. \n너무 배가 고파서...\n그럼, 이건 저장을 하고, 당장 또 심을 씨앗은 없는데 다른 씨앗은... 또 빌려주실 수 있나요?",
+      "bg": "harvest_field",
+      "progress": 0,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "ethan",
+          "position": "right"
+        }
+      ],
+      "memo": "안먹으면 어쩌라고",
+      "next": "scene_107"
+    },
+    "scene_107": {
+      "speaker": "에단",
+      "text": "지금은 당근을 일부만 조금 팔아 새 씨앗을 사고, 나머지는 때를 기다리며 저장을 하는게 좋은 성장전략입니다.",
+      "bg": "harvest_field",
+      "progress": 0,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "ethan",
+          "position": "right"
+        }
+      ],
+      "memo": "(합침)조금팔기",
+      "next": "scene_110"
+    },
+    "scene_108": {
+      "speaker": "주인공",
+      "text": "글쵸! 이걸 먹을 생각을 하다니, 너무 어리석었어요. \n이걸 팔아서, 그 돈으로 또 씨앗을 사서 또 심고, 수확하고, 또 팔고 하다 보면 부자 되겠죠?",
+      "bg": "harvest_field",
+      "progress": 0,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "ethan",
+          "position": "right"
+        }
+      ],
+      "memo": "그럼 팔아?",
+      "next": "scene_109"
+    },
+    "scene_109": {
+      "speaker": "에단",
+      "text": "부자는 무슨, 소작농이 되겠죠. \n파는 것도 다 때가 있습니다. \n비쌀 때 팔아야죠. ",
+      "bg": "harvest_field",
+      "progress": 0,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "ethan",
+          "position": "right"
+        }
+      ],
+      "memo": "때를 기다려라",
+      "next": "scene_107"
+    },
+    "scene_110": {
+      "speaker": "주인공",
+      "text": "아 예, 알겠어요. \n그러면, 당근과 씨앗 거래는 에단님과 하면 되겠군요. 좋은 가격으로 부탁드립니다.",
+      "bg": "harvest_field",
+      "progress": 0,
+      "characters": [
+        {
+          "id": "lord",
+          "position": "left"
+        },
+        {
+          "id": "ethan",
+          "position": "right"
+        }
+      ],
+      "memo": "거래문의"
     }
   },
   "reviewStages": [
     {
       "id": "stage_001",
-      "title": false,
+      "title": "농사의시작",
       "memo": "에단 대화 끝. 농사를 시작",
       "createdAt": "2026-07-14T00:50:44.002Z",
       "nodeId": "scene_060",
@@ -1878,6 +2095,47 @@ window.FARM_VILLAGE_SCENARIO = {
         },
         {
           "id": "liddy",
+          "position": "right"
+        }
+      ],
+      "playerName": "찌수니",
+      "territoryName": "방그래"
+    },
+    {
+      "id": "stage_002",
+      "title": "마나당근 재배성공",
+      "memo": "물주기완료",
+      "createdAt": "2026-07-14T01:50:35.982Z",
+      "nodeId": "scene_099",
+      "background": "sprout",
+      "quest": "water",
+      "progress": 1,
+      "affection": {
+        "liddy": 1,
+        "sebastian": 1,
+        "gallion": 1,
+        "max": 1
+      },
+      "flags": {
+        "met_sebastian": true,
+        "met_gallion": true,
+        "met_max": true,
+        "done_scene_060": true,
+        "done_scene_061": true,
+        "done_scene_063": true,
+        "갈리온": true
+      },
+      "log": [],
+      "auto": false,
+      "dialoguePage": 0,
+      "appliedEffects": [],
+      "characters": [
+        {
+          "id": "sebastian",
+          "position": "left"
+        },
+        {
+          "id": "lord",
           "position": "right"
         }
       ],
